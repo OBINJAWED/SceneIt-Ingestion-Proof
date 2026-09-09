@@ -8,6 +8,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import Home from '@/pages/home';
 import ImportsIndex from '@/pages/index';
 import SingleImport from '@/pages/import';
+import AuthPage from '@/pages/auth';
+import AuthActionPage from '@/pages/auth-action';
 import { useAuth } from '@workspace/replit-auth-web';
 import { isPilotAllowed } from '@/lib/polling';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -48,22 +50,28 @@ function PilotGate({ children }: { children: ReactNode }) {
         <Button className="mt-4" variant="outline" onClick={auth.logout}>Sign out</Button></div>
     </main>;
   }
-  return <div key={`${auth.user?.id}:admitted`}>{children}</div>;
+  return <div key={`${auth.user?.id}:${auth.csrfToken}:admitted`}>{children}</div>;
 }
+
 function Router() {
   const [location] = useLocation();
   useEffect(() => {
     document.title = location === '/' ? 'SceneIt — Private video search'
       : location === '/demo' ? 'SceneIt — Scene search demo'
       : location.startsWith('/imports/') ? 'SceneIt — Private analysis'
+      : location.startsWith('/auth') ? 'SceneIt — Authentication'
       : 'SceneIt — Page not found';
   }, [location]);
 
   return (
-    <PilotGate><Switch>
+    <Switch>
       <Route path="/" component={ImportsIndex} />
-      <Route path="/demo" component={Home} />
+      <Route path="/auth" component={AuthPage} />
+      <Route path="/auth/action" component={AuthActionPage} />
       <Route path="/imports/:id" component={SingleImport} />
+      <Route path="/demo">
+        <PilotGate><Home /></PilotGate>
+      </Route>
       <Route>
         <main className="min-h-[100dvh] flex items-center justify-center bg-background p-6">
           <section className="w-full max-w-lg rounded-2xl border bg-card p-8 text-center sm:p-12">
@@ -81,7 +89,7 @@ function Router() {
           </section>
         </main>
       </Route>
-    </Switch></PilotGate>
+    </Switch>
   );
 }
 

@@ -5,6 +5,8 @@ import unittest
 from contextlib import contextmanager
 from unittest.mock import Mock, patch
 
+from flask import g
+
 from sceneit.server import _environment_config, create_app
 from sceneit.db import DatabaseResourceExhausted
 
@@ -77,11 +79,92 @@ class HttpSecurityTests(unittest.TestCase):
         self.assertFalse(auth.get_json()["pilotAdmitted"])
         self.assertEqual(auth.get_json()["csrfToken"], "csrf-1")
 
+    def test_firebase_verification_and_shared_proof_boundaries_precede_work(self):
+        application = self.app(SCENEIT_PUBLIC_TRIAL_ENABLED=True)
+        unverified = {
+            **SESSION, "user_id": "firebase:owner", "provider": "firebase",
+            "email": "person@example.com", "email_verified": False,
+        }
+        with patch("sceneit.auth._session_from_cookie", return_value=unverified), \
+                patch("sceneit.auth.revalidate_firebase_session", return_value=True), \
+                patch("sceneit.imports.connection") as database:
+            client = application.test_client()
+            requests = (
+                ("/api/imports", {
+                    "entryMethod": "upload", "analysisAuthorized": True,
+                    "playbackAuthorized": True,
+                    "idempotencyKey": "68d5384e-10d9-4c88-aab4-6083e51e1868",
+                }),
+                ("/api/imports", {
+                    "entryMethod": "link", "sourceUrl": "https://vimeo.com/123",
+                    "analysisAuthorized": True, "playbackAuthorized": True,
+                    "idempotencyKey": "78d5384e-10d9-4c88-aab4-6083e51e1868",
+                }),
+                ("/api/imports/68d5384e-10d9-4c88-aab4-6083e51e1868/upload", {
+                    "fileName": "clip.mp4", "sizeBytes": 100,
+                    "contentType": "video/mp4",
+                }),
+                ("/api/imports/68d5384e-10d9-4c88-aab4-6083e51e1868/searches", {
+                    "query": "door",
+                }),
+            )
+            for path, body in requests:
+                with self.subTest(path=path):
+                    denied = client.post(
+                        path, json=body, headers={"X-CSRF-Token": "csrf-1"},
+                        base_url="https://sceneit.example",
+                    )
+                    self.assertEqual(403, denied.status_code)
+                    self.assertEqual(
+                        "verification_required", denied.get_json()["code"]
+                    )
+            database.assert_not_called()
+
+        verified = {**unverified, "email_verified": True}
+        with patch("sceneit.auth._session_from_cookie", return_value=verified), \
+                patch("sceneit.auth.revalidate_firebase_session", return_value=True):
+            client = application.test_client()
+            for path in (
+                "/api/proof", "/api/proof/report", "/api/proof/source",
+                "/api/proof/searches/6f30e229-bb64-46bc-aaf5-779bd96b9c11/frames/1",
+            ):
+                denied = client.get(path, base_url="https://sceneit.example")
+                self.assertEqual(403, denied.status_code)
+                self.assertEqual("pilot_not_admitted", denied.get_json()["code"])
+
+    def test_rollout_off_does_not_route_block_existing_owner_operations(self):
+        from sceneit.security import require_private_import_access
+
+        application = self.app(SCENEIT_PUBLIC_TRIAL_ENABLED=False)
+        session = {
+            **SESSION, "user_id": "firebase:owner", "provider": "firebase",
+            "email": "person@example.com", "email_verified": True,
+        }
+        for method, path in (
+            ("GET", "/api/imports/68d5384e-10d9-4c88-aab4-6083e51e1868"),
+            ("GET", "/api/imports/68d5384e-10d9-4c88-aab4-6083e51e1868/searches"),
+            ("POST", "/api/imports/68d5384e-10d9-4c88-aab4-6083e51e1868/complete"),
+            ("POST", "/api/imports/68d5384e-10d9-4c88-aab4-6083e51e1868/cancel"),
+            ("POST", "/api/imports/68d5384e-10d9-4c88-aab4-6083e51e1868/searches"),
+        ):
+            with self.subTest(path=path), application.test_request_context(
+                path, method=method, base_url="https://sceneit.example"
+            ):
+                g.auth_session = session
+                g.firebase_state_valid = True
+                g.pilot_admitted = False
+                self.assertIsNone(require_private_import_access())
+
     def test_admitted_session_is_reused_and_reported(self):
         application = self.app()
         client = application.test_client()
         with patch("sceneit.auth._session_from_cookie", return_value=SESSION), \
-                patch("sceneit.server.public_proof", return_value={"state": "ready"}):
+                patch("sceneit.server.public_proof", return_value={"state": "ready"}), \
+                patch("sceneit.import_limits.usage_snapshot", return_value={
+                    "importsUsed": 0, "importLimit": 3, "importsRemaining": 3,
+                    "searchesUsed": 0, "searchLimit": 50,
+                    "searchesRemaining": 50, "lifetime": True,
+                }):
             proof = client.get("/api/proof", base_url="https://sceneit.example")
             auth = client.get("/api/auth/user", base_url="https://sceneit.example")
         self.assertEqual(proof.status_code, 200)

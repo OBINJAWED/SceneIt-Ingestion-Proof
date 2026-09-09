@@ -14,6 +14,7 @@ from .import_limits import (ImportProblem, OWNER_SEARCH_LIMIT,
 from .proof import SEARCH_DEADLINE_SECONDS, SceneQuery
 from .provider import ProviderError, TwelveLabsClient
 from .resources import ResourceExhausted, shared_permit
+from flask import has_request_context
 
 
 def present_search(row):
@@ -88,6 +89,31 @@ def list_import_searches(owner_id, import_id):
 
 def search_import(owner_id, import_id, payload, client_factory=TwelveLabsClient):
     try:
+        query = SceneQuery.model_validate(payload)
+    except ValidationError:
+        raise ImportProblem("invalid_query",
+                            "Enter a description of 1–500 characters and a valid modality.") from None
+    key = unicodedata.normalize("NFKC", query.query).casefold()
+    # Saved results are reads: they consume neither provider capacity nor quota,
+    # and remain available after the lifetime allowance is exhausted.
+    with connection() as conn:
+        item = conn.execute(
+            "SELECT expires_at FROM sceneit_imports WHERE id=%s AND owner_id=%s",
+            (import_id, owner_id)).fetchone()
+        if not item:
+            raise ImportProblem("import_not_found", "Import not found.", 404)
+        if item["expires_at"] <= datetime.now(item["expires_at"].tzinfo):
+            raise ImportProblem("import_expired", "Import expired.", 410)
+        existing = conn.execute(
+            "SELECT * FROM sceneit_import_searches WHERE owner_id=%s AND import_id=%s "
+            "AND query_key=%s AND modality=%s",
+            (owner_id, import_id, key, query.modality)).fetchone()
+        if existing:
+            if existing["state"] == "done":
+                return present_search(existing)
+            raise ImportProblem("search_not_repeatable",
+                                "That search is pending or uncertain and will not be resubmitted.", 409)
+    try:
         with shared_permit(
                 "search", participant=owner_id,
                 lease_seconds=SEARCH_DEADLINE_SECONDS + 5):
@@ -139,6 +165,9 @@ def _search_import(owner_id, import_id, payload, client_factory):
                 return present_search(existing)
             raise ImportProblem("search_not_repeatable",
                                 "That search is pending or uncertain and will not be resubmitted.", 409)
+        if has_request_context():
+            from .auth import require_new_private_work
+            require_new_private_work()
         recent = conn.execute(
             "SELECT 1 FROM sceneit_import_searches WHERE owner_id=%s AND "
             "created_at > now()-interval '3 seconds' LIMIT 1",

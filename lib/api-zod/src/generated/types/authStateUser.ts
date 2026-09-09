@@ -5,6 +5,7 @@
  * SceneIt one-video ingestion and semantic-search proof.
  * OpenAPI spec version: 0.1.0
  */
+import type { AuthStateUserProvider } from './authStateUserProvider';
 
 /**
  * @nullable
@@ -13,4 +14,8 @@ export type AuthStateUser = {
   id: string;
   /** @nullable */
   firstName: string | null;
+  provider: AuthStateUserProvider;
+  /** @nullable */
+  email: string | null;
+  emailVerified: boolean;
 } | null;

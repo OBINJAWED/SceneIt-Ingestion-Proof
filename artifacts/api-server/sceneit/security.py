@@ -6,7 +6,9 @@ from flask import g, jsonify, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 
-PROTECTED_PREFIXES = ("/api/proof", "/api/imports")
+PROOF_PREFIX = "/api/proof"
+IMPORTS_PREFIX = "/api/imports"
+PROTECTED_PREFIXES = (PROOF_PREFIX, IMPORTS_PREFIX)
 PRIVATE_PREFIXES = PROTECTED_PREFIXES + (
     "/api/auth", "/api/login", "/api/callback", "/api/logout", "/api/billing",
 )
@@ -40,6 +42,7 @@ def parse_trusted_hosts(value):
 def is_pilot_admitted(session, allowed_subjects):
     return bool(
         session
+        and session.get("provider", "replit") == "replit"
         and session.get("user_id") in allowed_subjects
         and isinstance(session.get("user_id"), str)
     )
@@ -59,7 +62,21 @@ def require_pilot():
         )
     return None
 
+def require_private_import_access():
+    """Admit exact pilots or verified Firebase owners to private routes."""
+    from .auth import require_owner
+    from .http import problem_response
 
+    require_owner()
+    session = g.auth_session
+    if session.get("provider", "replit") == "replit":
+        return require_pilot()
+    if not session.get("email_verified"):
+        return problem_response(
+            "Verify this email before using private processing.",
+            "verification_required", 403,
+        )
+    return None
 def _same_origin():
     origin = request.headers.get("Origin")
     if not origin:
@@ -94,12 +111,31 @@ def install_security(app):
 
     @app.before_request
     def enforce_security_boundaries():
+        if (
+            request.path != "/api/billing/webhook"
+            and request.is_json
+            and request.content_length is not None
+            and request.content_length > 4096
+        ):
+            from .http import problem_response
+
+            return problem_response(
+                "The request payload is too large.", "http_413", 413
+            )
         session = getattr(g, "auth_session", None)
         g.pilot_admitted = is_pilot_admitted(
             session, app.config["PILOT_ALLOWED_SUBJECTS"]
         )
-        if request.path.startswith(PROTECTED_PREFIXES):
+        if request.path.startswith(PROOF_PREFIX):
             denied = require_pilot()
+            if denied is not None:
+                return denied
+            if _is_expensive_request():
+                from .resources import admit_participant
+
+                admit_participant(session["user_id"], action="expensive_http")
+        elif request.path.startswith(IMPORTS_PREFIX):
+            denied = require_private_import_access()
             if denied is not None:
                 return denied
             if _is_expensive_request():
@@ -145,9 +181,14 @@ def _vary(existing, value):
 def _is_expensive_request():
     if request.method != "POST":
         return False
+    return request.path == "/api/proof/searches" or _is_new_public_work()
+
+def _is_new_public_work():
+    if request.method != "POST":
+        return False
     parts = request.path.rstrip("/").split("/")
-    return request.path == "/api/proof/searches" or (
+    return request.path == "/api/imports" or (
         len(parts) == 5
         and parts[1:3] == ["api", "imports"]
-        and parts[-1] == "searches"
+        and parts[-1] in {"upload", "searches"}
     )

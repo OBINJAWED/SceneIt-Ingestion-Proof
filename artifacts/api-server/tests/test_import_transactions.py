@@ -59,6 +59,8 @@ class PrivateImportTransactionTests(unittest.TestCase):
             patch("sceneit.import_worker.connection", cls._test_connection),
             patch("sceneit.proof.connection", cls._test_connection),
             patch("sceneit.resources.connection", cls._test_connection),
+            patch("sceneit.trial_identity.usage_owner",
+                  side_effect=lambda _conn, owner: owner),
         ]
         for patcher in cls.connection_patchers:
             patcher.start()
@@ -533,6 +535,105 @@ class PrivateImportTransactionTests(unittest.TestCase):
             ).fetchone()["imports_used"]
         self.assertEqual(import_limits.APP_IMPORT_LIMIT, used)
 
+    def test_search_budget_final_owner_and_app_slots_are_transactional(self):
+        def race(owners):
+            barrier = threading.Barrier(len(owners))
+            outcomes = []
+            lock = threading.Lock()
+
+            def reserve(owner):
+                barrier.wait()
+                with self._test_connection() as conn:
+                    result = import_limits.reserve_search_budget(conn, owner)
+                with lock:
+                    outcomes.append(result)
+
+            threads = [threading.Thread(target=reserve, args=(owner,))
+                       for owner in owners]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(10)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            return outcomes
+
+        owner = "search-owner-race"
+        with self._test_connection() as conn:
+            conn.execute(
+                "INSERT INTO sceneit_import_usage(owner_id,searches_used) VALUES (%s,%s)",
+                (owner, import_limits.OWNER_SEARCH_LIMIT - 1),
+            )
+        outcomes = race([owner] * 6)
+        self.assertEqual(1, sum(ok for ok, _ in outcomes))
+        self.assertEqual(
+            5, sum(code == "owner_search_limit" for ok, code in outcomes if not ok)
+        )
+
+        with self._test_connection() as conn:
+            conn.execute("TRUNCATE sceneit_import_usage")
+            conn.execute(
+                "UPDATE sceneit_import_app_usage SET searches_used=%s "
+                "WHERE singleton=true",
+                (import_limits.APP_SEARCH_LIMIT - 1,),
+            )
+        outcomes = race([f"search-app-race-{number}" for number in range(6)])
+        self.assertEqual(1, sum(ok for ok, _ in outcomes))
+        self.assertEqual(
+            5, sum(code == "app_search_limit" for ok, code in outcomes if not ok)
+        )
+
+    def test_shared_usage_ledger_does_not_transfer_import_ownership(self):
+        first_owner, recreated_owner = "firebase-old", "firebase-new"
+        ledger = "firebase-email:verified@example.invalid"
+
+        def shared_ledger(_conn, owner):
+            return ledger if owner in {first_owner, recreated_owner} else owner
+
+        with patch("sceneit.trial_identity.usage_owner", side_effect=shared_ledger):
+            with self._test_connection() as conn:
+                for _ in range(import_limits.OWNER_IMPORT_LIMIT):
+                    self.assertEqual(
+                        (True, None),
+                        import_limits.reserve_import_budget(conn, first_owner),
+                    )
+                self.assertEqual(
+                    (False, "owner_import_limit"),
+                    import_limits.reserve_import_budget(conn, recreated_owner),
+                )
+            import_id = self.insert_import(first_owner)
+            with self.app.test_client() as client:
+                response = client.get(
+                    f"/api/imports/{import_id}",
+                    headers=self.headers(recreated_owner),
+                )
+            self.assertEqual(404, response.status_code)
+            with patch("sceneit.db.connection", self._test_connection):
+                snapshot = import_limits.usage_snapshot(recreated_owner)
+        self.assertEqual(import_limits.OWNER_IMPORT_LIMIT, snapshot["importsUsed"])
+        self.assertEqual(0, snapshot["importsRemaining"])
+        self.assertTrue(snapshot["lifetime"])
+
+    def test_exhausted_upload_is_rejected_before_storage_reservation(self):
+        owner = "no-fourth-storage-owner"
+        import_id = self.insert_import(owner)
+        with self._test_connection() as conn:
+            conn.execute(
+                "INSERT INTO sceneit_import_usage(owner_id,imports_used) VALUES (%s,%s)",
+                (owner, import_limits.OWNER_IMPORT_LIMIT),
+            )
+        storage = Mock(side_effect=AssertionError("storage reservation reached"))
+        with patch("sceneit.private_storage.reserve_upload", storage):
+            with self.app.test_client() as client:
+                response = client.post(
+                    f"/api/imports/{import_id}/upload",
+                    json={"fileName": "clip.mp4", "sizeBytes": 123,
+                          "contentType": "video/mp4"},
+                    headers=self.headers(owner),
+                )
+        self.assertEqual(429, response.status_code)
+        self.assertEqual("owner_import_limit", response.get_json()["code"])
+        storage.assert_not_called()
+
     def test_cross_owner_routes_fail_closed_before_storage_or_provider(self):
         victim = "victim-owner"
         attacker = "attacker-owner"
@@ -651,14 +752,34 @@ class PrivateImportTransactionTests(unittest.TestCase):
                 "expiresAt": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
                 "sessionReference": "encrypted-session",
             }
-            with patch("sceneit.private_storage.reserve_upload", return_value=reservation):
+            with patch(
+                "sceneit.private_storage.reserve_upload",
+                side_effect=lambda *_args: reservation.copy(),
+            ):
                 reserved = client.post(
                     f"/api/imports/{import_id}/upload",
                     json={"fileName": "clip.mp4", "sizeBytes": 123,
                           "contentType": "video/mp4"},
                     headers=self.headers(owner),
                 )
+                with patch(
+                    "sceneit.private_storage.decrypt_upload_session",
+                    return_value="session",
+                ), patch(
+                    "sceneit.private_storage.cancel_upload_session",
+                ), patch(
+                    "sceneit.private_storage.object_info",
+                    return_value={"generation": "old"},
+                ), patch("sceneit.private_storage.delete_object"):
+                    retried = client.post(
+                        f"/api/imports/{import_id}/upload",
+                        json={"fileName": "clip.mp4", "sizeBytes": 123,
+                              "contentType": "video/mp4"},
+                        headers=self.headers(owner),
+                    )
             self.assertEqual(200, reserved.status_code)
+            self.assertEqual(200, retried.status_code)
+            self.assertTrue(retried.get_json()["import"]["budgetReserved"])
             info = {"size": 123, "contentType": "video/mp4", "generation": "77"}
             with patch("sceneit.private_storage.object_info", return_value=info):
                 first = client.post(
@@ -887,6 +1008,44 @@ class PrivateImportTransactionTests(unittest.TestCase):
             ).fetchone()["imports_used"]
         self.assertEqual(1, owner_used)
         self.assertEqual(1, app_used)
+
+    def test_saved_search_replay_works_exhausted_without_capacity_or_charge(self):
+        owner = "saved-search-owner"
+        import_id = self.insert_import(
+            owner, state="ready", duration_seconds=20, has_audio=True,
+            index_id="index", asset_id="asset", indexed_asset_id="indexed",
+        )
+        search_id = uuid.uuid4()
+        with self._test_connection() as conn:
+            conn.execute(
+                "INSERT INTO sceneit_import_usage(owner_id,searches_used) VALUES (%s,%s)",
+                (owner, import_limits.OWNER_SEARCH_LIMIT),
+            )
+            conn.execute(
+                "INSERT INTO sceneit_import_searches"
+                "(id,import_id,owner_id,query,query_key,modality,state,matches,"
+                "latency_ms,completed_at,attempt_id,deadline_at,resolved_at,resolution) "
+                "VALUES (%s,%s,%s,'Saved Door','saved door','visual','done','[]',"
+                "1,now(),%s,now()+interval '1 minute',now(),'completed')",
+                (search_id, import_id, owner, search_id),
+            )
+        provider = Mock(side_effect=AssertionError("provider reached"))
+        permit = Mock(side_effect=AssertionError("capacity permit reached"))
+        with patch("sceneit.import_search.shared_permit", permit):
+            result = import_search.search_import(
+                owner, import_id,
+                {"query": "SAVED DOOR", "modality": "visual"},
+                client_factory=provider,
+            )
+        self.assertEqual(str(search_id), result["id"])
+        permit.assert_not_called()
+        provider.assert_not_called()
+        with self._test_connection() as conn:
+            used = conn.execute(
+                "SELECT searches_used FROM sceneit_import_usage WHERE owner_id=%s",
+                (owner,),
+            ).fetchone()["searches_used"]
+        self.assertEqual(import_limits.OWNER_SEARCH_LIMIT, used)
 
     def test_silent_media_rejects_audio_modalities_but_allows_visual(self):
         owner = "silent-owner"

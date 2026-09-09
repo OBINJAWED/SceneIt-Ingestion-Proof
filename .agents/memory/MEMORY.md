@@ -7,3 +7,4 @@
 - [Preview file boundaries](preview-file-boundaries.md) — Vite's default workspace access can bypass API admission; scope every preview service's filesystem.
 - [Semantic merge verification](semantic-merge-verification.md) — automatic reconciliation can silently corrupt Python test structure; validate discovery after merging.
 - [Billing provider evidence](billing-provider-verification.md) — normalized fixtures miss SDK transport and resource-shape incompatibilities; test real SDK paths without network.
+- [Authentication contract fixtures](auth-contract-fixtures.md) — browser mocks can hide broken successful exchanges; validate actual route emissions against isolated persistence.

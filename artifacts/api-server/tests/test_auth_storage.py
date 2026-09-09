@@ -39,6 +39,15 @@ class AuthBoundaryTests(unittest.TestCase):
             response = current_user()
             self.assertEqual(response.get_json(), {
                 "user": None, "csrfToken": None, "pilotAdmitted": False,
+                "capabilities": {
+                    "replit": True, "emailPassword": False,
+                    "publicTrialEnabled": False, "firebaseConfig": None,
+                    "unavailableReason": "public_trial_disabled",
+                },
+                "privateAccess": {
+                    "allowed": False, "reason": "authentication_required",
+                },
+                "usage": None,
             })
 
     def test_owner_and_csrf_come_only_from_verified_session(self):

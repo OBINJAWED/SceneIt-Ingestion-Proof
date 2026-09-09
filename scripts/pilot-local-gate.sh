@@ -19,6 +19,9 @@ createdb -U sceneit_fixture -h "$WORK" -p 55459 sceneit_test_transactions
 unset TWELVE_LABS_API_KEY
 unset STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET
 export SCENEIT_BILLING_ENABLED=false
+unset FIREBASE_PROJECT_ID FIREBASE_WEB_API_KEY FIREBASE_AUTH_DOMAIN FIREBASE_WEB_APP_ID
+unset FIREBASE_SERVICE_ACCOUNT_JSON FIREBASE_TRIAL_HASH_SECRET FIREBASE_AUTH_EMULATOR_HOST
+export SCENEIT_PUBLIC_TRIAL_ENABLED=false
 export DATABASE_URL="postgresql://sceneit_fixture@/sceneit_test_runtime?host=$WORK&port=55459"
 export SCENEIT_TEST_DATABASE_URL="postgresql://sceneit_fixture@/sceneit_test_transactions?host=$WORK&port=55459"
 export SCENEIT_DISABLE_PROVIDER_NETWORK=1

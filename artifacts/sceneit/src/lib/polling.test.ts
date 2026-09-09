@@ -31,7 +31,9 @@ test('status polling backs off and stops without retrying mutations', () => {
 
 test('all protected failure fixtures have actionable copy', () => {
   assert.deepEqual(Object.keys(protectedStateMessage).sort(), [
-    'admission_required', 'not_found', 'processing', 'quota_exhausted',
-    'service_unavailable', 'unauthorized', 'uncertain',
+    'admission_required', 'capacity_exhausted', 'configuration_required',
+    'not_found', 'processing', 'quota_exhausted',
+    'service_unavailable', 'trial_exhausted', 'unauthorized', 'uncertain',
+    'verification_required',
   ]);
 });

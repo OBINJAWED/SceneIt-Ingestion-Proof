@@ -4,14 +4,24 @@ import { Badge } from '@/components/ui/badge';
 import { Video, LogIn, LogOut, Loader2 } from 'lucide-react';
 import { Link } from 'wouter';
 import { useGetImportConfig } from '@workspace/api-client-react';
+import { canReadPrivate } from '@/lib/private-access';
+import { useState } from 'react';
 
 export function AuthHeader() {
-  const { user, isAuthenticated, isLoading: authLoading, login, logout } = useAuth();
+  const auth = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, login, logout } = auth;
+  const [signingOut, setSigningOut] = useState(false);
+  const attemptLogout = async () => {
+    setSigningOut(true);
+    try { await (auth.signoutUnconfirmed ? auth.retrySignout() : logout()); }
+    finally { setSigningOut(false); }
+  };
 
   const { data: config } = useGetImportConfig({
     query: {
       queryKey: ['/api/imports/config'],
-      staleTime: Infinity,
+      staleTime: 30000,
+      enabled: canReadPrivate(auth),
     }
   });
 
@@ -25,7 +35,8 @@ export function AuthHeader() {
           </h1>
         </Link>
         <div className="flex items-center gap-3 mt-1.5 text-sm text-muted-foreground font-medium">
-          <Link href="/demo" className="hover:text-foreground transition-colors focus-visible:outline-none focus-visible:underline rounded-sm">View Demo</Link>
+          {auth.pilotAdmitted && <Link href="/demo" className="hover:text-foreground transition-colors focus-visible:outline-none focus-visible:underline rounded-sm">View Demo</Link>}
+          {!auth.pilotAdmitted && <span className="text-xs">Private video search</span>}
         </div>
       </div>
 
@@ -35,21 +46,27 @@ export function AuthHeader() {
             Worker Unavailable
           </Badge>
         )}
-        {authLoading ? (
+        {auth.signoutUnconfirmed ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span role="status" className="text-xs text-muted-foreground">Private access cleared. Sign out not confirmed.</span>
+            <Button variant="outline" onClick={attemptLogout} disabled={signingOut}>Retry sign out</Button>
+          </div>
+        ) : authLoading ? (
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
         ) : isAuthenticated ? (
           <div className="flex min-w-0 max-w-full items-center gap-3">
             <span className="max-w-36 truncate text-sm font-medium text-muted-foreground">
               {user?.firstName || 'User'}
             </span>
-            <Button variant="secondary" onClick={logout} className="font-medium">
+            <Button variant="secondary" onClick={attemptLogout} disabled={signingOut} className="font-medium">
               <LogOut className="size-4 mr-2" /> Log out
             </Button>
           </div>
         ) : (
-          <Button variant="secondary" onClick={login} className="font-medium">
-            <LogIn className="size-4 mr-2" /> Log in
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" asChild><Link href="/auth?mode=signin"><LogIn className="size-4 mr-2" /> Email sign in</Link></Button>
+            <Button variant="ghost" onClick={login} className="font-medium">Replit pilot</Button>
+          </div>
         )}
       </div>
     </header>

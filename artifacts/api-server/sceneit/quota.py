@@ -60,9 +60,25 @@ def _account(conn, owner_id, now, *, require_membership=True):
     return account
 
 
+def _membership_required(conn, owner_id, requested):
+    """Keep durable Firebase trials on app-only caps outside request context."""
+    if not requested or not isinstance(owner_id, str) or not owner_id.startswith(
+        "firebase:"
+    ):
+        return requested
+    from .trial_identity import usage_owner
+    # usage_owner fails closed when a Firebase identity exists without its
+    # durable ledger. An unknown firebase-shaped owner remains subject to paid
+    # membership rather than receiving trial admission.
+    return usage_owner(conn, owner_id) == owner_id
+
+
 def check_work(conn, owner_id, *, require_membership=True):
     if not billing_settings().enabled:
         return
+    require_membership = _membership_required(
+        conn, owner_id, require_membership
+    )
     _lock(conn)
     stopped = conn.execute(
         "SELECT stopped FROM sceneit_work_control WHERE singleton=true FOR UPDATE"
@@ -105,6 +121,9 @@ def _reserve(conn, owner_id, operation_id, amounts, *, require_membership=True):
     if (not amounts or not set(amounts) <= set(METRICS)
             or any(type(n) is not int or n < 1 or n > 10**15 for n in amounts.values())):
         raise ValueError("Invalid reservation units")
+    require_membership = _membership_required(
+        conn, owner_id, require_membership
+    )
     account = check_work(conn, owner_id, require_membership=require_membership)
     now = _now(conn)
     app_start = now.replace(hour=0, minute=0, second=0, microsecond=0)

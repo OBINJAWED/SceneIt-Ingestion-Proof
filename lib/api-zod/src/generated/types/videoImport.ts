@@ -13,6 +13,8 @@ import type { VideoImportTimelineStatus } from './videoImportTimelineStatus';
 
 export interface VideoImport {
   id: string;
+  /** This import has already consumed a lifetime attempt; continuation never consumes another attempt */
+  budgetReserved: boolean;
   title: string;
   entryMethod: VideoImportEntryMethod;
   sourceKind: VideoImportSourceKind;

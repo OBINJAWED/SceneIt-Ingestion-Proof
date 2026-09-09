@@ -20,6 +20,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AuthChallenge,
   AuthState,
   BillingCheckout,
   BillingFailureResponse,
@@ -30,6 +31,7 @@ import type {
   CreateImport,
   EmptyRequest,
   FailureResponse,
+  FirebaseCredential,
   HealthStatus,
   ImportConfig,
   ImportResponseResponse,
@@ -86,7 +88,7 @@ export const getGetAuthSessionUrl = () => {
 }
 
 /**
- * @summary Read the current pilot session and admission decision
+ * @summary Read sign-in capabilities, private eligibility and usage allowances
  */
 export const getAuthSession = async ( options?: Parameters<typeof customFetch>[1]): Promise<AuthState> => {
 
@@ -133,7 +135,7 @@ export type GetAuthSessionQueryError = ErrorType<unknown>
 
 
 /**
- * @summary Read the current pilot session and admission decision
+ * @summary Read sign-in capabilities, private eligibility and usage allowances
  */
 
 export function useGetAuthSession<TData = Awaited<ReturnType<typeof getAuthSession>>, TError = ErrorType<unknown>>(
@@ -224,6 +226,154 @@ export function useGetCurrentAuthUser<TData = Awaited<ReturnType<typeof getCurre
 
 
 
+
+export const getGetFirebaseChallengeUrl = () => {
+
+
+
+
+  return `/api/auth/firebase/challenge`
+}
+
+/**
+ * @summary Start a short-lived same-origin email session exchange
+ */
+export const getFirebaseChallenge = async ( options?: Parameters<typeof customFetch>[1]): Promise<AuthChallenge> => {
+
+  return customFetch<AuthChallenge>(getGetFirebaseChallengeUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFirebaseChallengeQueryKey = () => {
+    return [
+    `/api/auth/firebase/challenge`
+    ] as const;
+    }
+
+
+export const getGetFirebaseChallengeQueryOptions = <TData = Awaited<ReturnType<typeof getFirebaseChallenge>>, TError = ErrorType<FailureResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirebaseChallenge>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFirebaseChallengeQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFirebaseChallenge>>> = ({ signal }) => getFirebaseChallenge({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFirebaseChallenge>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFirebaseChallengeQueryResult = NonNullable<Awaited<ReturnType<typeof getFirebaseChallenge>>>
+export type GetFirebaseChallengeQueryError = ErrorType<FailureResponse>
+
+
+/**
+ * @summary Start a short-lived same-origin email session exchange
+ */
+
+export function useGetFirebaseChallenge<TData = Awaited<ReturnType<typeof getFirebaseChallenge>>, TError = ErrorType<FailureResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirebaseChallenge>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFirebaseChallengeQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getExchangeFirebaseSessionUrl = () => {
+
+
+
+
+  return `/api/auth/firebase/session`
+}
+
+/**
+ * @summary Exchange a fresh Firebase ID token for an application session
+ */
+export const exchangeFirebaseSession = async (firebaseCredential: FirebaseCredential, options?: Parameters<typeof customFetch>[1]): Promise<AuthState> => {
+
+  return customFetch<AuthState>(getExchangeFirebaseSessionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(firebaseCredential)
+  }
+);}
+
+
+
+
+
+export const getExchangeFirebaseSessionMutationOptions = <TError = ErrorType<FailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exchangeFirebaseSession>>, TError,{data: BodyType<FirebaseCredential>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof exchangeFirebaseSession>>, TError,{data: BodyType<FirebaseCredential>}, TContext> => {
+
+const mutationKey = ['exchangeFirebaseSession'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof exchangeFirebaseSession>>, {data: BodyType<FirebaseCredential>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  exchangeFirebaseSession(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExchangeFirebaseSessionMutationResult = NonNullable<Awaited<ReturnType<typeof exchangeFirebaseSession>>>
+    export type ExchangeFirebaseSessionMutationBody = BodyType<FirebaseCredential>
+    export type ExchangeFirebaseSessionMutationError = ErrorType<FailureResponse>
+
+    /**
+ * @summary Exchange a fresh Firebase ID token for an application session
+ */
+export const useExchangeFirebaseSession = <TError = ErrorType<FailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exchangeFirebaseSession>>, TError,{data: BodyType<FirebaseCredential>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof exchangeFirebaseSession>>,
+        TError,
+        {data: BodyType<FirebaseCredential>},
+        TContext
+      > => {
+      return useMutation(getExchangeFirebaseSessionMutationOptions(options));
+    }
 
 export const getGetBillingStatusUrl = () => {
 

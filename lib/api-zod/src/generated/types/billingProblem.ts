@@ -19,7 +19,9 @@ import type { BillingProblemState } from './billingProblemState';
  * `billing_relationship_invalid`, `reservation_conflict`, `reservation_released`,
  * `webhook_rejected`, `invoice_not_paid`, `checkout_completed`, `checkout_exists`,
  * `checkout_plan_conflict`, `checkout_state_invalid` (409);
- * `participant_throttled`, `owner_quota_exhausted`, `storage_quota_exhausted` (429);
+ * `participant_throttled`, `owner_quota_exhausted`, `storage_quota_exhausted`,
+ * `owner_import_limit`, `owner_search_limit`, `app_import_limit`,
+ * `app_search_limit` (429);
  * and `billing_disabled`, `billing_unavailable`, `billing_provider_unavailable`,
  * `provider_outcome_unknown`, `provider_rejected`, `service_work_stopped`,
  * `service_capacity_exhausted`, `database_unavailable`,

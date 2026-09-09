@@ -16,10 +16,10 @@ paths:
   /auth/session:
     get:
       operationId: getAuthSession
-      summary: Read the current pilot session and admission decision
+      summary: Read sign-in capabilities, private eligibility and usage allowances
       responses:
         "200":
-          description: Current session, admission decision, and CSRF token; never cached
+          description: Current session, separate pilot/private admission, cumulative or recurring usage allowances, and CSRF token; never cached
           content:
             application/json:
               schema:
@@ -34,6 +34,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthState"
+  /auth/firebase/challenge:
+    get:
+      operationId: getFirebaseChallenge
+      summary: Start a short-lived same-origin email session exchange
+      responses:
+        "200":
+          description: Session-exchange token bound to an HttpOnly flow cookie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthChallenge"
+        "403": { $ref: "#/components/responses/Failure" }
+        "429": { $ref: "#/components/responses/Failure" }
+        "503": { $ref: "#/components/responses/Failure" }
+  /auth/firebase/session:
+    post:
+      operationId: exchangeFirebaseSession
+      summary: Exchange a fresh Firebase ID token for an application session
+      parameters:
+        - name: X-CSRF-Token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FirebaseCredential"
+      responses:
+        "200":
+          description: Verified application session; unverified email cannot process
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthState"
+        "400": { $ref: "#/components/responses/Failure" }
+        "401": { $ref: "#/components/responses/Failure" }
+        "403": { $ref: "#/components/responses/Failure" }
+        "429": { $ref: "#/components/responses/Failure" }
+        "503": { $ref: "#/components/responses/Failure" }
   /billing/status:
     get:
       operationId: getBillingStatus
@@ -570,7 +611,7 @@ components:
         authorized: { type: boolean }
     AuthState:
       type: object
-      required: [user, csrfToken, pilotAdmitted]
+      required: [user, csrfToken, pilotAdmitted, capabilities, privateAccess, usage]
       properties:
         csrfToken: { type: [string, "null"] }
         pilotAdmitted:
@@ -578,10 +619,73 @@ components:
           description: Server-authoritative pilot admission. False for anonymous, denied, or indeterminate sessions.
         user:
           type: [object, "null"]
-          required: [id, firstName]
+          required: [id, firstName, provider, email, emailVerified]
           properties:
             id: { type: string }
             firstName: { type: [string, "null"] }
+            provider: { type: string, enum: [replit, firebase] }
+            email: { type: [string, "null"] }
+            emailVerified: { type: boolean }
+        capabilities: { $ref: "#/components/schemas/AuthCapabilities" }
+        privateAccess: { $ref: "#/components/schemas/PrivateAccess" }
+        usage:
+          anyOf:
+            - $ref: "#/components/schemas/TrialUsage"
+            - { type: "null" }
+    AuthChallenge:
+      type: object
+      required: [csrfToken]
+      properties:
+        csrfToken: { type: string }
+    FirebaseCredential:
+      type: object
+      additionalProperties: false
+      required: [idToken]
+      properties:
+        idToken: { type: string, minLength: 20, maxLength: 8192 }
+    AuthCapabilities:
+      type: object
+      required: [replit, emailPassword, publicTrialEnabled, firebaseConfig, unavailableReason]
+      properties:
+        replit: { type: boolean }
+        emailPassword: { type: boolean }
+        publicTrialEnabled: { type: boolean }
+        unavailableReason:
+          type: [string, "null"]
+          enum: [public_trial_disabled, firebase_not_configured, null]
+        firebaseConfig:
+          type: [object, "null"]
+          required: [apiKey, authDomain, projectId, appId]
+          description: Public web configuration only, never Admin credentials
+          properties:
+            apiKey: { type: string }
+            authDomain: { type: string }
+            projectId: { type: string }
+            appId: { type: string }
+    PrivateAccess:
+      type: object
+      required: [allowed, reason]
+      properties:
+        allowed:
+          type: boolean
+          description: Identity eligibility for new private work; quotas and worker availability are checked separately
+        reason:
+          type: string
+          enum: [ready, authentication_required, verification_required, public_trial_disabled, firebase_not_configured, identity_unavailable, pilot_not_admitted]
+    TrialUsage:
+      type: object
+      description: Operation allowances, not a dollar ceiling. Firebase trial usage is cumulative with no monthly reset; paid Replit-owner usage follows incoming recurring commercial allowance windows.
+      required: [importsUsed, importLimit, importsRemaining, searchesUsed, searchLimit, searchesRemaining, lifetime]
+      properties:
+        importsUsed: { type: integer, minimum: 0 }
+        importLimit: { type: integer, minimum: 0 }
+        importsRemaining: { type: integer, minimum: 0 }
+        searchesUsed: { type: integer, minimum: 0 }
+        searchLimit: { type: integer, minimum: 0 }
+        searchesRemaining: { type: integer, minimum: 0 }
+        lifetime:
+          type: boolean
+          description: True for cumulative Firebase trial allowances; false for recurring paid Replit-owner allowances.
     BillingCheckout:
       type: object
       additionalProperties: false
@@ -663,7 +767,9 @@ components:
         `billing_relationship_invalid`, `reservation_conflict`, `reservation_released`,
         `webhook_rejected`, `invoice_not_paid`, `checkout_completed`, `checkout_exists`,
         `checkout_plan_conflict`, `checkout_state_invalid` (409);
-        `participant_throttled`, `owner_quota_exhausted`, `storage_quota_exhausted` (429);
+        `participant_throttled`, `owner_quota_exhausted`, `storage_quota_exhausted`,
+        `owner_import_limit`, `owner_search_limit`, `app_import_limit`,
+        `app_search_limit` (429);
         and `billing_disabled`, `billing_unavailable`, `billing_provider_unavailable`,
         `provider_outcome_unknown`, `provider_rejected`, `service_work_stopped`,
         `service_capacity_exhausted`, `database_unavailable`,
@@ -683,6 +789,10 @@ components:
             - service_capacity_exhausted
             - owner_quota_exhausted
             - storage_quota_exhausted
+            - owner_import_limit
+            - owner_search_limit
+            - app_import_limit
+            - app_search_limit
             - billing_unavailable
             - validation_error
             - invalid_request
@@ -719,7 +829,7 @@ components:
             - internal_error
         state:
           type: string
-          enum: [admission_required, quota_exhausted, processing, uncertain, service_unavailable, not_found, unauthorized]
+          enum: [admission_required, verification_required, trial_exhausted, capacity_exhausted, configuration_required, quota_exhausted, processing, uncertain, service_unavailable, not_found, unauthorized]
         retryable: { type: boolean, default: false }
         retryAfterSeconds: { type: ["integer", "null"], minimum: 0 }
     ImportConfig:
@@ -768,9 +878,12 @@ components:
         expiresAt: { type: string }
     VideoImport:
       type: object
-      required: [id, title, entryMethod, sourceKind, sourceUrl, externalId, state, statusMessage, progressPercent, errorCode, durationSeconds, fileSizeBytes, hasAudio, sourcePlaybackAvailable, sourcePlaybackUrl, playbackAuthorized, timelineStatus, createdAt, updatedAt, expiresAt, searchesUsed, searchLimit, importsUsed, importLimit, quotaMode]
+      required: [id, title, entryMethod, sourceKind, sourceUrl, externalId, state, statusMessage, progressPercent, errorCode, durationSeconds, fileSizeBytes, hasAudio, sourcePlaybackAvailable, sourcePlaybackUrl, playbackAuthorized, timelineStatus, createdAt, updatedAt, expiresAt, searchesUsed, searchLimit, importsUsed, importLimit, quotaMode, budgetReserved]
       properties:
         id: { type: string }
+        budgetReserved:
+          type: boolean
+          description: This import has already consumed a lifetime attempt; continuation never consumes another attempt
         title: { type: string }
         entryMethod: { type: string, enum: [upload, link] }
         sourceKind: { type: string, enum: [file, youtube, x, tiktok, vimeo] }
@@ -829,6 +942,9 @@ components:
       properties:
         error: { type: string }
         code: { type: string }
+        state:
+          type: string
+          enum: [admission_required, verification_required, trial_exhausted, capacity_exhausted, configuration_required, quota_exhausted, processing, uncertain, service_unavailable, not_found, unauthorized]
     ProtectedApiFailure:
       type: object
       additionalProperties: false
@@ -838,7 +954,7 @@ components:
         code: { type: string }
         state:
           type: string
-          enum: [admission_required, quota_exhausted, processing, uncertain, service_unavailable, not_found, unauthorized]
+          enum: [admission_required, verification_required, trial_exhausted, capacity_exhausted, configuration_required, quota_exhausted, processing, uncertain, service_unavailable, not_found, unauthorized]
         retryable: { type: boolean, default: false }
         retryAfterSeconds: { type: ["integer", "null"], minimum: 0 }
     ProofReadiness:

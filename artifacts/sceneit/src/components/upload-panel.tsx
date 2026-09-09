@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { uploadFileXHR } from '@/lib/upload-utils';
 import { useAuth } from '@workspace/replit-auth-web';
+import { useQueryClient } from '@tanstack/react-query';
 import { importError } from '@/lib/import-errors';
 import {
   useReserveImportUpload,
@@ -20,13 +21,15 @@ interface UploadPanelProps {
   cancellationSignal?: AbortSignal;
   cancellationPending?: boolean;
   onCancel?: () => void;
+  reservationAllowed?: boolean;
 }
 
 export function UploadPanel({
-  importId, config, onSuccess, onError, cancellationSignal, cancellationPending, onCancel,
+  importId, config, onSuccess, onError, cancellationSignal, cancellationPending, onCancel, reservationAllowed = true,
 }: UploadPanelProps) {
   const { toast } = useToast();
   const { csrfToken } = useAuth();
+  const cache = useQueryClient();
 
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -38,7 +41,7 @@ export function UploadPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeUpload = useRef<AbortController | null>(null);
   const stopped = !!cancellationSignal?.aborted;
-  const fileSelectionDisabled = isProcessing || confirmed || stopped || !!cancellationPending;
+  const fileSelectionDisabled = isProcessing || confirmed || stopped || !!cancellationPending || (!reservationAllowed && !transferred);
 
   useEffect(() => {
     const stop = () => {
@@ -123,6 +126,8 @@ export function UploadPanel({
             contentType: 'video/mp4'
           }
         });
+        cache.setQueryData(['/api/imports', importId], reservation.import);
+        void cache.invalidateQueries({ queryKey: ['/api/auth/session'] });
         // Reservation writes may finish after Cancel. Never start their transfer.
         if (controller.signal.aborted) return;
         await uploadFileXHR(
@@ -145,6 +150,7 @@ export function UploadPanel({
     } catch (err: any) {
       if (controller.signal.aborted) return;
       setError(importError(err));
+      void cache.invalidateQueries({ queryKey: ['/api/auth/session'] });
       if (onError) onError(err);
     } finally {
       if (activeUpload.current === controller) {
@@ -156,6 +162,9 @@ export function UploadPanel({
 
   return (
     <div className="flex w-full flex-col gap-5">
+      {!reservationAllowed && !transferred && <p role="status" className="rounded-lg border p-4 text-sm text-muted-foreground">
+        A new upload cannot be reserved with your current access or remaining allowance. Existing uploads can still be completed or cancelled.
+      </p>}
       {error && <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm leading-6 text-destructive">
         <p className="break-words">{error}</p>
         <p className="mt-1">Retry below or select the file again. This import is not complete yet.</p>

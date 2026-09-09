@@ -301,6 +301,32 @@ def _infer_baseline(conn, migrations):
     if hardening_present == hardening_tables:
         inferred.add(6)
 
+    firebase_tables = {
+        "sceneit_firebase_trial_ledgers", "sceneit_firebase_identities",
+    }
+    firebase_present = {
+        name for name in firebase_tables if _relation_exists(conn, name)
+    }
+    if firebase_present and firebase_present != firebase_tables:
+        raise IncompatibleSchema("Firebase identity migration is only partially present")
+    if firebase_present == firebase_tables:
+        required_identity = {
+            "id", "project_id", "issuer", "firebase_uid", "owner_id",
+            "trial_ledger_id", "email_hash",
+        }
+        required_session = {
+            "firebase_identity_id", "firebase_auth_time", "firebase_validated_at",
+            "firebase_email", "firebase_email_verified",
+        }
+        required_user = {"provider", "email", "email_verified"}
+        if (
+            not required_identity <= set(_columns(conn, "sceneit_firebase_identities"))
+            or not required_session <= set(_columns(conn, "sceneit_auth_sessions"))
+            or not required_user <= set(_columns(conn, "sceneit_auth_users"))
+        ):
+            raise IncompatibleSchema("Firebase identity migration is incompatible")
+        inferred.add(10)
+
     for version in sorted(inferred):
         migration = by_version.get(version)
         if migration is None:
@@ -378,6 +404,8 @@ def _applied(conn, migrations):
 def schema_fingerprint(conn):
     """Canonical final-schema fingerprint (no rows, secrets, or owner content)."""
     schema = conn.execute("SELECT current_schema() AS name").fetchone()["name"]
+    if isinstance(schema, bytes):
+        schema = schema.decode("utf-8")
     columns = conn.execute(
         "SELECT table_name,column_name,ordinal_position,data_type,is_nullable,"
         "COALESCE(column_default,'') AS column_default "
@@ -399,6 +427,8 @@ def schema_fingerprint(conn):
     ).fetchall()
 
     def clean(value):
+        if isinstance(value, bytes):
+            return clean(value.decode("ascii"))
         if isinstance(value, dict):
             return {key: clean(item) for key, item in value.items()}
         if isinstance(value, list):

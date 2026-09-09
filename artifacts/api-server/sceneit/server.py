@@ -46,7 +46,25 @@ def _environment_config():
         "TRUST_PROXY_HOPS": proxy_hops,
         "READINESS_TIMEOUT_MS": readiness_timeout,
         "DATABASE_CONFIGURED": bool(os.environ.get("DATABASE_URL")),
-        "MAX_CONTENT_LENGTH": 4096,
+        "SCENEIT_PUBLIC_TRIAL_ENABLED": os.environ.get(
+            "SCENEIT_PUBLIC_TRIAL_ENABLED", "false"
+        ),
+        "FIREBASE_PROJECT_ID": os.environ.get("FIREBASE_PROJECT_ID"),
+        "FIREBASE_WEB_API_KEY": os.environ.get("FIREBASE_WEB_API_KEY"),
+        "FIREBASE_AUTH_DOMAIN": os.environ.get("FIREBASE_AUTH_DOMAIN"),
+        "FIREBASE_WEB_APP_ID": os.environ.get("FIREBASE_WEB_APP_ID"),
+        "FIREBASE_SERVICE_ACCOUNT_JSON": os.environ.get(
+            "FIREBASE_SERVICE_ACCOUNT_JSON"
+        ),
+        "FIREBASE_TRIAL_HASH_SECRET": os.environ.get(
+            "FIREBASE_TRIAL_HASH_SECRET"
+        ),
+        "FIREBASE_AUTH_EMULATOR_HOST": os.environ.get(
+            "FIREBASE_AUTH_EMULATOR_HOST"
+        ),
+        # Firebase ID tokens may reach the contract's 8 KiB bound; allow JSON
+        # framing while route models retain their narrower field limits.
+        "MAX_CONTENT_LENGTH": 10 * 1024,
     }
 
 
@@ -68,11 +86,12 @@ def create_app(config=None):
         # Explicit factory configuration is isolated from malformed or incomplete
         # process environment, making route tests deterministic.
         application.config.from_mapping({
-            "MAX_CONTENT_LENGTH": 4096,
+            "MAX_CONTENT_LENGTH": 10 * 1024,
             "TRUST_PROXY_HOPS": 0,
             "PILOT_ALLOWED_SUBJECTS": "",
             "TRUSTED_HOSTS": (),
             "DATABASE_CONFIGURED": False,
+            "SCENEIT_PUBLIC_TRIAL_ENABLED": False,
         })
         application.config.from_mapping(config)
 

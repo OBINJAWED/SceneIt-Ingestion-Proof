@@ -11,6 +11,10 @@ export type ProtectedApiFailureState = typeof ProtectedApiFailureState[keyof typ
 
 export const ProtectedApiFailureState = {
   admission_required: 'admission_required',
+  verification_required: 'verification_required',
+  trial_exhausted: 'trial_exhausted',
+  capacity_exhausted: 'capacity_exhausted',
+  configuration_required: 'configuration_required',
   quota_exhausted: 'quota_exhausted',
   processing: 'processing',
   uncertain: 'uncertain',

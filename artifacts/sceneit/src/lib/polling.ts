@@ -31,6 +31,10 @@ export function isPilotAllowed(session: {
 }
 
 export const protectedStateMessage = {
+  verification_required: 'Verify your email before processing.',
+  trial_exhausted: 'Your lifetime allowance is used up. Saved results remain available.',
+  capacity_exhausted: 'Shared application capacity is exhausted. Saved results remain available.',
+  configuration_required: 'Authentication is not configured.',
   admission_required: 'Pilot admission is required.',
   quota_exhausted: 'The shared pilot search quota is exhausted.',
   processing: 'The proof is still processing.',

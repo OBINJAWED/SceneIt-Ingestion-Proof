@@ -6,6 +6,7 @@
   "dependencies": {
     "@tanstack/react-query": "catalog:",
     "@workspace/api-client-react": "workspace:*",
+    "firebase": "^12.18.0",
     "react": "catalog:"
   },
   "devDependencies": {

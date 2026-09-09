@@ -15,7 +15,7 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.rows import dict_row
 
-from sceneit import migrate, quota
+from sceneit import import_limits, migrate, quota
 from sceneit.billing_config import BillingProblem, reset_billing_settings
 from sceneit.config import reset_settings
 from test_quota_policy import commercial_environment
@@ -166,6 +166,98 @@ class QuotaPostgresTests(unittest.TestCase):
             with self.assertRaises(BillingProblem) as error:
                 quota.reserve(conn, "owner-a", "never-submitted", {"searches": 1})
             self.assertEqual("reservation_released", error.exception.code)
+
+    def test_firebase_trial_worker_and_lifetime_ledgers_survive_recreation(self):
+        ledger = "firebase-email-v1:" + ("a" * 64)
+        owners = ("firebase:original", "firebase:recreated")
+        with self.conn() as conn:
+            conn.execute(
+                "INSERT INTO sceneit_firebase_trial_ledgers(id) VALUES (%s)",
+                (ledger,),
+            )
+            for index, owner in enumerate(owners):
+                conn.execute(
+                    "INSERT INTO sceneit_auth_users"
+                    "(id,first_name,provider,email,email_verified) "
+                    "VALUES (%s,'Fixture','firebase','person@example.com',true)",
+                    (owner,),
+                )
+                conn.execute(
+                    "INSERT INTO sceneit_firebase_identities"
+                    "(id,project_id,issuer,firebase_uid,owner_id,trial_ledger_id,"
+                    "email_hash) VALUES (%s,'fixture-project','https://fixture.invalid',"
+                    "%s,%s,%s,%s)",
+                    (
+                        uuid.uuid4(), f"uid-{index}", owner, ledger,
+                        "b" * 64,
+                    ),
+                )
+
+            # These are the same helpers called by worker entry and media reads.
+            # Neither owner has a billing account, paid coverage, or pilot entry.
+            quota.check_work(conn, owners[0])
+            quota.reserve(
+                conn, owners[0], "firebase-worker-media",
+                {"media_bytes": 10},
+            )
+            quota.reserve(
+                conn, owners[1], "firebase-worker-frame", {"frames": 1},
+            )
+            reservations = conn.execute(
+                "SELECT operation_id,owner_id FROM sceneit_usage_reservations "
+                "WHERE operation_id LIKE 'firebase-worker-%' ORDER BY operation_id"
+            ).fetchall()
+            self.assertEqual(
+                [
+                    ("firebase-worker-frame", None),
+                    ("firebase-worker-media", None),
+                ],
+                [(row["operation_id"], row["owner_id"]) for row in reservations],
+            )
+            scopes = conn.execute(
+                "SELECT DISTINCT scope FROM sceneit_usage_windows"
+            ).fetchall()
+            self.assertEqual(["app"], [row["scope"] for row in scopes])
+
+            self.assertEqual(
+                (True, None),
+                import_limits.reserve_import_operation(
+                    conn, owners[0], "firebase-import-original"
+                ),
+            )
+            self.assertEqual(
+                (True, None),
+                import_limits.reserve_import_operation(
+                    conn, owners[1], "firebase-import-recreated"
+                ),
+            )
+            self.assertEqual(
+                (True, None),
+                import_limits.reserve_search_operation(
+                    conn, owners[0], "firebase-search-original"
+                ),
+            )
+            usage = import_limits.usage_values(conn, owners[1])
+            self.assertEqual(
+                (2, 1), (usage["imports_used"], usage["searches_used"])
+            )
+            ledger_usage = conn.execute(
+                "SELECT imports_used,searches_used "
+                "FROM sceneit_import_usage WHERE owner_id=%s",
+                (ledger,),
+            ).fetchone()
+            self.assertEqual(
+                (2, 1),
+                (ledger_usage["imports_used"], ledger_usage["searches_used"]),
+            )
+            self.assertEqual(
+                0,
+                conn.execute(
+                    "SELECT count(*) AS n FROM sceneit_usage_reservations "
+                    "WHERE operation_id LIKE 'firebase-import-%' "
+                    "OR operation_id LIKE 'firebase-search-%'"
+                ).fetchone()["n"],
+            )
 
     def test_restart_and_same_operation_race_preserve_one_reservation(self):
         fixture_url = make_conninfo(TEST_URL, options=f"-c search_path={self.schema}")

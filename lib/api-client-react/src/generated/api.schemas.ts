@@ -11,6 +11,14 @@ export interface PlaybackAuthorization {
   authorized: boolean;
 }
 
+export type AuthStateUserProvider = typeof AuthStateUserProvider[keyof typeof AuthStateUserProvider];
+
+
+export const AuthStateUserProvider = {
+  replit: 'replit',
+  firebase: 'firebase',
+} as const;
+
 /**
  * @nullable
  */
@@ -18,7 +26,85 @@ export type AuthStateUser = {
   id: string;
   /** @nullable */
   firstName: string | null;
+  provider: AuthStateUserProvider;
+  /** @nullable */
+  email: string | null;
+  emailVerified: boolean;
 } | null;
+
+/**
+ * @nullable
+ */
+export type AuthCapabilitiesUnavailableReason = typeof AuthCapabilitiesUnavailableReason[keyof typeof AuthCapabilitiesUnavailableReason] | null;
+
+
+export const AuthCapabilitiesUnavailableReason = {
+  public_trial_disabled: 'public_trial_disabled',
+  firebase_not_configured: 'firebase_not_configured',
+} as const;
+
+/**
+ * Public web configuration only, never Admin credentials
+ * @nullable
+ */
+export type AuthCapabilitiesFirebaseConfig = {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  appId: string;
+} | null;
+
+export interface AuthCapabilities {
+  replit: boolean;
+  emailPassword: boolean;
+  publicTrialEnabled: boolean;
+  /** @nullable */
+  unavailableReason: AuthCapabilitiesUnavailableReason;
+  /**
+     * Public web configuration only, never Admin credentials
+     * @nullable
+     */
+  firebaseConfig: AuthCapabilitiesFirebaseConfig;
+}
+
+export type PrivateAccessReason = typeof PrivateAccessReason[keyof typeof PrivateAccessReason];
+
+
+export const PrivateAccessReason = {
+  ready: 'ready',
+  authentication_required: 'authentication_required',
+  verification_required: 'verification_required',
+  public_trial_disabled: 'public_trial_disabled',
+  firebase_not_configured: 'firebase_not_configured',
+  identity_unavailable: 'identity_unavailable',
+  pilot_not_admitted: 'pilot_not_admitted',
+} as const;
+
+export interface PrivateAccess {
+  /** Identity eligibility for new private work; quotas and worker availability are checked separately */
+  allowed: boolean;
+  reason: PrivateAccessReason;
+}
+
+/**
+ * Operation allowances, not a dollar ceiling. Firebase trial usage is cumulative with no monthly reset; paid Replit-owner usage follows incoming recurring commercial allowance windows.
+ */
+export interface TrialUsage {
+  /** @minimum 0 */
+  importsUsed: number;
+  /** @minimum 0 */
+  importLimit: number;
+  /** @minimum 0 */
+  importsRemaining: number;
+  /** @minimum 0 */
+  searchesUsed: number;
+  /** @minimum 0 */
+  searchLimit: number;
+  /** @minimum 0 */
+  searchesRemaining: number;
+  /** True for cumulative Firebase trial allowances; false for recurring paid Replit-owner allowances. */
+  lifetime: boolean;
+}
 
 export interface AuthState {
   /** @nullable */
@@ -27,6 +113,21 @@ export interface AuthState {
   pilotAdmitted: boolean;
   /** @nullable */
   user: AuthStateUser;
+  capabilities: AuthCapabilities;
+  privateAccess: PrivateAccess;
+  usage: TrialUsage | null;
+}
+
+export interface AuthChallenge {
+  csrfToken: string;
+}
+
+export interface FirebaseCredential {
+  /**
+     * @minLength 20
+     * @maxLength 8192
+     */
+  idToken: string;
 }
 
 export type BillingCheckoutPlan = typeof BillingCheckoutPlan[keyof typeof BillingCheckoutPlan];
@@ -127,6 +228,10 @@ export const BillingProblemCode = {
   service_capacity_exhausted: 'service_capacity_exhausted',
   owner_quota_exhausted: 'owner_quota_exhausted',
   storage_quota_exhausted: 'storage_quota_exhausted',
+  owner_import_limit: 'owner_import_limit',
+  owner_search_limit: 'owner_search_limit',
+  app_import_limit: 'app_import_limit',
+  app_search_limit: 'app_search_limit',
   billing_unavailable: 'billing_unavailable',
   validation_error: 'validation_error',
   invalid_request: 'invalid_request',
@@ -168,6 +273,10 @@ export type BillingProblemState = typeof BillingProblemState[keyof typeof Billin
 
 export const BillingProblemState = {
   admission_required: 'admission_required',
+  verification_required: 'verification_required',
+  trial_exhausted: 'trial_exhausted',
+  capacity_exhausted: 'capacity_exhausted',
+  configuration_required: 'configuration_required',
   quota_exhausted: 'quota_exhausted',
   processing: 'processing',
   uncertain: 'uncertain',
@@ -187,7 +296,9 @@ export const BillingProblemState = {
  * `billing_relationship_invalid`, `reservation_conflict`, `reservation_released`,
  * `webhook_rejected`, `invoice_not_paid`, `checkout_completed`, `checkout_exists`,
  * `checkout_plan_conflict`, `checkout_state_invalid` (409);
- * `participant_throttled`, `owner_quota_exhausted`, `storage_quota_exhausted` (429);
+ * `participant_throttled`, `owner_quota_exhausted`, `storage_quota_exhausted`,
+ * `owner_import_limit`, `owner_search_limit`, `app_import_limit`,
+ * `app_search_limit` (429);
  * and `billing_disabled`, `billing_unavailable`, `billing_provider_unavailable`,
  * `provider_outcome_unknown`, `provider_rejected`, `service_work_stopped`,
  * `service_capacity_exhausted`, `database_unavailable`,
@@ -341,6 +452,8 @@ export const VideoImportQuotaMode = {
 
 export interface VideoImport {
   id: string;
+  /** This import has already consumed a lifetime attempt; continuation never consumes another attempt */
+  budgetReserved: boolean;
   title: string;
   entryMethod: VideoImportEntryMethod;
   sourceKind: VideoImportSourceKind;
@@ -427,9 +540,27 @@ export interface ImportSearch {
   matches: ImportMatch[];
 }
 
+export type ApiFailureState = typeof ApiFailureState[keyof typeof ApiFailureState];
+
+
+export const ApiFailureState = {
+  admission_required: 'admission_required',
+  verification_required: 'verification_required',
+  trial_exhausted: 'trial_exhausted',
+  capacity_exhausted: 'capacity_exhausted',
+  configuration_required: 'configuration_required',
+  quota_exhausted: 'quota_exhausted',
+  processing: 'processing',
+  uncertain: 'uncertain',
+  service_unavailable: 'service_unavailable',
+  not_found: 'not_found',
+  unauthorized: 'unauthorized',
+} as const;
+
 export interface ApiFailure {
   error: string;
   code: string;
+  state?: ApiFailureState;
 }
 
 export type ProtectedApiFailureState = typeof ProtectedApiFailureState[keyof typeof ProtectedApiFailureState];
@@ -437,6 +568,10 @@ export type ProtectedApiFailureState = typeof ProtectedApiFailureState[keyof typ
 
 export const ProtectedApiFailureState = {
   admission_required: 'admission_required',
+  verification_required: 'verification_required',
+  trial_exhausted: 'trial_exhausted',
+  capacity_exhausted: 'capacity_exhausted',
+  configuration_required: 'configuration_required',
   quota_exhausted: 'quota_exhausted',
   processing: 'processing',
   uncertain: 'uncertain',

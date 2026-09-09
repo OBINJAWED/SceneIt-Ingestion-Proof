@@ -23,6 +23,8 @@ import {
   Loader2, LockKeyhole, Search, ShieldCheck, Trash2,
 } from 'lucide-react';
 import { createStatusPoller } from '@/lib/polling';
+import { canReadPrivate, privateAccessMessage } from '@/lib/private-access';
+import { TrialAllowance } from '@/components/trial-allowance';
 
 export default function SingleImport() {
   const { id = '' } = useParams();
@@ -34,7 +36,7 @@ export default function SingleImport() {
         <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Checking your private session…
       </div>
     </main>
-      : !auth.isAuthenticated ? <main className="mx-auto grid min-h-[70vh] max-w-5xl place-items-center p-4 sm:p-8">
+      : !canReadPrivate(auth) ? <main className="mx-auto grid min-h-[70vh] max-w-5xl place-items-center p-4 sm:p-8">
         <Card className="w-full max-w-lg rounded-xl border-border/70">
           <CardHeader className="space-y-4 p-6 sm:p-8">
             <div className="grid size-11 place-items-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
@@ -43,7 +45,8 @@ export default function SingleImport() {
             <div className="space-y-2">
               <CardTitle className="text-2xl sm:text-3xl">Your private analysis</CardTitle>
               <p className="text-sm leading-6 text-muted-foreground">
-                Sign in to access this video, its processing status, and saved search results. Only the owner can continue.
+                {auth.error ? 'Session check unavailable. Private data is hidden until your account can be verified.'
+                  : privateAccessMessage(auth.privateAccess.reason)} Only the owner can access this video.
               </p>
             </div>
           </CardHeader>
@@ -51,12 +54,13 @@ export default function SingleImport() {
             {auth.error && <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
               Sign-in status could not be checked. Refresh the page or try signing in again.
             </div>}
-            <Button className="w-full sm:w-auto" onClick={auth.login} data-testid="button-sign-in">
-              <ShieldCheck className="mr-2 size-4" aria-hidden="true" /> Sign in with Replit
-            </Button>
+            <Button className="w-full sm:w-auto" asChild data-testid="button-sign-in"><Link href={`/auth?mode=signin&returnTo=${encodeURIComponent(`/imports/${id}`)}`}>
+              <ShieldCheck className="mr-2 size-4" aria-hidden="true" /> Email sign in
+            </Link></Button>
+            <Button variant="outline" onClick={auth.login}>Sign in with Replit</Button>
           </CardContent>
         </Card>
-      </main> : <Analysis key={`${auth.user?.id}:${id}`} id={id} token={auth.csrfToken || ''} />}
+      </main> : <Analysis key={`${auth.user?.id}:${auth.csrfToken}:${id}`} id={id} token={auth.csrfToken || ''} />}
   </div>;
 }
 
@@ -76,6 +80,7 @@ function CandidateFrame({ match }: { match: ImportMatch }) {
     onError={() => setUnavailable(true)} />;
 }
 function Analysis({ id, token }: { id: string; token: string }) {
+  const auth = useAuth();
   const cache = useQueryClient();
   const statusPoller = useRef(createStatusPoller());
   const headers = { 'X-CSRF-Token': token };
@@ -111,6 +116,7 @@ function Analysis({ id, token }: { id: string; token: string }) {
     statusPoller.current.reset();
     await cache.invalidateQueries({ queryKey: ['/api/imports', id] });
     await cache.invalidateQueries({ queryKey: ['/api/imports/current'] });
+    await cache.invalidateQueries({ queryKey: ['/api/auth/session'] });
   };
   function selectSearch(search: ImportSearch) {
     setResult(search); setText(search.query); setModality(search.modality);
@@ -121,7 +127,7 @@ function Analysis({ id, token }: { id: string; token: string }) {
   }, [historyQuery.data]);
   async function runSearch(event: React.FormEvent) {
     event.preventDefault();
-    if (!ready || busy || !text.trim() || (item && item.searchesUsed >= item.searchLimit)) return;
+    if (!ready || busy || !text.trim() || !auth.privateAccess.allowed || !auth.usage || auth.usage.searchesRemaining <= 0) return;
     setBusy(true); setError('');
     try {
       selectSearch(await searchImport(id, { query: text.trim(), modality }, { headers }));
@@ -203,6 +209,8 @@ function Analysis({ id, token }: { id: string; token: string }) {
     </header>
     <CancelImportDialog open={cancelOpen} onOpenChange={setCancelOpen} onConfirm={cancel}
       pending={cancelling} upload={waitingForFile} ready={ready} />
+    <TrialAllowance />
+    {!auth.privateAccess.allowed && <p role="status" className="rounded-lg border p-4 text-sm">{privateAccessMessage(auth.privateAccess.reason)} Retained results and cleanup remain available.</p>}
     {error && <div role="alert" className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" /><p className="min-w-0 break-words">{error}</p>
     </div>}
@@ -247,6 +255,7 @@ function Analysis({ id, token }: { id: string; token: string }) {
         <p className="text-sm leading-6 text-muted-foreground">The source link, if supplied, stays attached. Re-select your file after a reload or interrupted upload.
           Uploading is not complete until the server validates its contents.</p>
         <UploadPanel importId={id} config={config} onSuccess={refresh}
+          reservationAllowed={auth.privateAccess.allowed && (!!item.budgetReserved || (auth.usage?.importsRemaining ?? 0) > 0)}
           cancellationSignal={uploadCancellation.signal} cancellationPending={cancelling}
           onCancel={() => setCancelOpen(true)} />
       </CardContent>
@@ -316,7 +325,7 @@ function Analysis({ id, token }: { id: string; token: string }) {
             {item.hasAudio === false && <p className="rounded-lg border border-border/70 bg-background/40 p-3 text-xs text-muted-foreground">
               This video is silent. Visual search remains available; audio search is disabled.
             </p>}
-            <Button type="submit" disabled={!ready || busy || !text.trim() || item.searchesUsed >= item.searchLimit} className="w-full sm:w-auto" data-testid="button-search">
+            <Button type="submit" disabled={!ready || busy || !text.trim() || !auth.privateAccess.allowed || !auth.usage || auth.usage.searchesRemaining <= 0} className="w-full sm:w-auto" data-testid="button-search">
               {busy ? <><Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" /> Please wait…</> : <><Search className="mr-2 size-4" aria-hidden="true" /> Search scenes</>}
             </Button>
           </form>
@@ -379,7 +388,7 @@ function Analysis({ id, token }: { id: string; token: string }) {
       </div>
     </div>
     <footer className="grid gap-3 border-t border-border/70 pt-5 text-xs leading-5 text-muted-foreground md:grid-cols-3">
-      <p><strong className="text-foreground">{item.importsUsed} of {item.importLimit} lifetime import attempts used.</strong><br />Cancellation, failure, deletion, or changing entry method does not reset allowances.</p>
+      <p><strong className="text-foreground">{item.importsUsed} of {item.importLimit} {item.quotaMode === 'monthly' ? 'current-window' : 'lifetime'} import attempts used.</strong><br />Cancellation, failure, deletion, or changing entry method does not reset allowances.</p>
       <p><strong className="text-foreground">Private media access ends {new Date(item.expiresAt).toLocaleString()}.</strong><br />Normal retention: {config?.retentionDays || 7} days.
         Uncertain provider operations may need operator cleanup beyond that deadline.</p>
       <p><strong className="text-foreground">Accepted media</strong><br />Up to 200 MB, H.264 MP4 with AAC audio or silent, 4 seconds–20 minutes.</p>

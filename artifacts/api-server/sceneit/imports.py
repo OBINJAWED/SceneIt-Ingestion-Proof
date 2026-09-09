@@ -4,7 +4,7 @@ import subprocess
 import uuid
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, g, has_request_context, jsonify, request, send_file
 from pydantic import (BaseModel, ConfigDict, Field, StrictBool, StrictInt,
                       ValidationError, field_validator)
 from typing import Literal
@@ -14,7 +14,7 @@ from .import_limits import (
     APP_IMPORT_LIMIT, APP_SEARCH_LIMIT, MAX_BYTES, MAX_DURATION_SECONDS,
     MIN_DURATION_SECONDS, OWNER_IMPORT_LIMIT, OWNER_SEARCH_LIMIT,
     RETENTION_DAYS, ImportProblem, reserve_import_budget,
-    reserve_import_operation,
+    reserve_import_operation, usage_values, uses_lifetime_allowance,
 )
 from .import_search import list_import_searches, search_import
 from .storage import private_object_path
@@ -64,8 +64,23 @@ def _auth(write=False):
         require_csrf()
     return owner
 
+def _require_new_private_work():
+    # Direct provider-free transaction tests have no request capability to
+    # validate. Every HTTP new-work path does.
+    if has_request_context():
+        from .auth import require_new_private_work
+        require_new_private_work()
+
 
 def _usage(conn, owner_id):
+    if uses_lifetime_allowance(conn, owner_id):
+        usage = usage_values(conn, owner_id)
+        return {
+            **usage,
+            "import_limit": OWNER_IMPORT_LIMIT,
+            "search_limit": OWNER_SEARCH_LIMIT,
+            "quota_mode": "lifetime",
+        }
     from .billing_config import billing_settings
     settings = billing_settings()
     commercial = settings["enabled"] if isinstance(settings, dict) else settings.enabled
@@ -77,11 +92,9 @@ def _usage(conn, owner_id):
             "searches_used": status["metrics"]["searches"]["used"],
             "import_limit": status["metrics"]["imports"]["limit"],
             "search_limit": status["metrics"]["searches"]["limit"],
+            "quota_mode": "monthly",
         }
-    owner = conn.execute(
-        "SELECT imports_used,searches_used FROM sceneit_import_usage WHERE owner_id=%s",
-        (owner_id,)).fetchone()
-    return owner or {"imports_used": 0, "searches_used": 0}
+    return {**usage_values(conn, owner_id), "quota_mode": "lifetime"}
 
 
 def present_import(row, usage=None):
@@ -104,6 +117,7 @@ def present_import(row, usage=None):
         "sourcePlaybackAvailable": available,
         "sourcePlaybackUrl": f"/api/imports/{row['id']}/source" if available else None,
         "playbackAuthorized": row["playback_authorized"],
+        "budgetReserved": row.get("budget_reserved", False),
         "timelineStatus": "unverified" if row["source_url"] else "not_applicable",
         "createdAt": row["created_at"].isoformat(),
         "updatedAt": row["updated_at"].isoformat(),
@@ -112,7 +126,8 @@ def present_import(row, usage=None):
         "searchLimit": usage.get("search_limit", OWNER_SEARCH_LIMIT),
         "importsUsed": usage["imports_used"],
         "importLimit": usage.get("import_limit", OWNER_IMPORT_LIMIT),
-        "quotaMode": "monthly" if commercial else "lifetime",
+        "quotaMode": usage.get(
+            "quota_mode", "monthly" if commercial else "lifetime"),
     }
 
 
@@ -140,6 +155,10 @@ def import_config():
     from .billing_config import billing_settings
     billing = billing_settings()
     commercial = billing["enabled"] if isinstance(billing, dict) else billing.enabled
+    # The signed-in Firebase capability is a lifetime trial even when the
+    # separately controlled Replit subscription capability is enabled.
+    session = getattr(g, "auth_session", None) or {}
+    commercial = commercial and session.get("provider", "replit") != "firebase"
     owner_limits = billing["limits"] if isinstance(billing, dict) else billing.limits
     app_limits = billing["app_limits"] if isinstance(billing, dict) else billing.app_limits
     return jsonify({
@@ -200,6 +219,7 @@ def create_import():
             (owner, body.idempotencyKey)).fetchone()
         if existing:
             return jsonify(present_import(existing, _usage(conn, owner)))
+        _require_new_private_work()
         active = conn.execute(
             "SELECT 1 FROM sceneit_imports WHERE owner_id=%s AND state=ANY(%s) LIMIT 1",
             (owner, list(ACTIVE_STATES))).fetchone()
@@ -259,6 +279,7 @@ def reserve_upload(import_id):
         row = _owned(conn, owner, import_id, True)
         if row["state"] not in ("file_required", "awaiting_upload"):
             raise ImportProblem("upload_not_allowed", "This import is not awaiting a file.", 409)
+        _require_new_private_work()
         if not row["budget_reserved"]:
             ok, code = reserve_import_operation(
                 conn, owner, f"import:{import_id}")
@@ -269,10 +290,11 @@ def reserve_upload(import_id):
         commercial = settings["enabled"] if isinstance(settings, dict) else settings.enabled
         if commercial:
             from .quota import reserve, reserve_storage
+            trial = uses_lifetime_allowance(conn, owner)
             reserve(
                 conn, owner, f"import:{import_id}:upload:{path}",
-                {"upload_attempts": 1})
-            reserve_storage(conn, owner, path, body.sizeBytes)
+                {"upload_attempts": 1}, require_membership=not trial)
+            reserve_storage(conn, None if trial else owner, path, body.sizeBytes)
         try:
             create_attempt(
                 conn, import_id, owner, attempt_id, path, body.sizeBytes)
@@ -428,6 +450,7 @@ def import_source(import_id):
     owner = _auth()
     with connection() as conn:
         row = _owned(conn, owner, import_id)
+        trial = uses_lifetime_allowance(conn, owner)
     if (row["state"] != "ready" or not row["playback_authorized"] or
             not row["media_path"]):
         raise ImportProblem("source_playback_unavailable", "Source playback is unavailable.", 404)
@@ -436,7 +459,8 @@ def import_source(import_id):
     from .private_storage import open_private
     return open_private(
         row["media_path"], request.headers.get("Range"), row["media_generation"],
-        owner_id=owner, operation_id=f"media:source:{uuid.uuid4()}")
+        owner_id=owner, operation_id=f"media:source:{uuid.uuid4()}",
+        require_membership=not trial)
 
 
 @imports_bp.get("/api/imports/<uuid:import_id>/searches")
@@ -460,6 +484,7 @@ def import_frame(import_id, search_id, rank):
             "WHERE i.id=%s AND i.owner_id=%s AND s.id=%s AND s.owner_id=%s "
             "AND i.state='ready' AND s.state='done'",
             (import_id, owner, search_id, owner)).fetchone()
+        trial = uses_lifetime_allowance(conn, owner)
     if not row or rank < 1 or rank > len(row["matches"]) or not row["media_path"]:
         raise ImportProblem("frame_not_found", "Source frame not found.", 404)
     if row.get("expires_at") and row["expires_at"] <= datetime.now(
@@ -478,7 +503,8 @@ def import_frame(import_id, search_id, rank):
             with connection() as conn:
                 reserve(
                     conn, owner, operation_id,
-                    {"frames": 1, "media_bytes": int(row["file_size_bytes"])})
+                    {"frames": 1, "media_bytes": int(row["file_size_bytes"])},
+                    require_membership=not trial)
         output = private_frame(row["media_path"], row["media_generation"], midpoint)
         if not output:
             raise ImportProblem("frame_unavailable", "Source frame is unavailable.", 503)
@@ -486,7 +512,8 @@ def import_frame(import_id, search_id, rank):
             with connection() as conn:
                 reserve(
                     conn, owner, f"{operation_id}:response",
-                    {"media_bytes": len(output)})
+                    {"media_bytes": len(output)},
+                    require_membership=not trial)
         response = send_file(io.BytesIO(output), mimetype="image/jpeg")
         response.headers["Cache-Control"] = "private, no-store"
         return response

@@ -84,6 +84,12 @@ class ImportCancellationTests(unittest.TestCase):
         connection_patch = patch("sceneit.imports.connection", connection)
         connection_patch.start()
         self.addCleanup(connection_patch.stop)
+        usage_owner_patch = patch(
+            "sceneit.trial_identity.usage_owner",
+            side_effect=lambda _conn, owner: owner,
+        )
+        usage_owner_patch.start()
+        self.addCleanup(usage_owner_patch.stop)
         app = Flask(__name__)
         app.config["TESTING"] = True
 

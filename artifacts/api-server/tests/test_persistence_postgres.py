@@ -5,6 +5,7 @@ suite refuses to use DATABASE_URL, creates isolated schemas/databases, and never
 calls a media or search provider.
 """
 import os
+import json
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ import threading
 import unittest
 import uuid
 from contextlib import contextmanager
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,6 +27,8 @@ from sceneit import migrate, resources
 from sceneit.config import ConfigError, reset_settings, settings
 from sceneit.db import DatabaseResourceExhausted, connection
 from sceneit.health import health_bp
+from sceneit.firebase_auth import FirebaseConfig
+from sceneit.trial_identity import trial_ledger_id, usage_owner
 
 
 TEST_URL = os.environ.get("SCENEIT_TEST_DATABASE_URL", "")
@@ -330,6 +334,254 @@ class PersistencePostgresTests(unittest.TestCase):
         with self.conn() as conn:
             self.assertTrue(all(row["status"] == "applied"
                                 for row in migrate.status(conn=conn)))
+
+    def test_firebase_identity_isolation_and_same_email_ledger_survive_recreation(self):
+        """Qualified identities never link private owners, but share trial usage."""
+        ledger = trial_ledger_id(
+            "Person@Example.com", "immutable-postgres-fixture-secret-123456"
+        )
+        owner_a = f"firebase:{uuid.uuid4()}"
+        owner_b = f"firebase:{uuid.uuid4()}"
+        identity_a = uuid.uuid4()
+        identity_b = uuid.uuid4()
+        with self.conn() as conn:
+            migrate.upgrade(conn=conn)
+            conn.execute(
+                "INSERT INTO sceneit_firebase_trial_ledgers(id) VALUES (%s)",
+                (ledger,),
+            )
+            for identity, uid, owner in (
+                (identity_a, "uid-before-delete", owner_a),
+                (identity_b, "uid-after-recreate", owner_b),
+            ):
+                conn.execute(
+                    "INSERT INTO sceneit_auth_users"
+                    "(id,first_name,provider,email,email_verified) "
+                    "VALUES (%s,'Person','firebase','person@example.com',true)",
+                    (owner,),
+                )
+                conn.execute(
+                    "INSERT INTO sceneit_firebase_identities"
+                    "(id,project_id,issuer,firebase_uid,owner_id,trial_ledger_id,"
+                    "email_hash) VALUES (%s,'sceneit-test',"
+                    "'https://securetoken.google.com/sceneit-test',%s,%s,%s,%s)",
+                    (identity, uid, owner, ledger, "a" * 64),
+                )
+            conn.execute(
+                "INSERT INTO sceneit_import_usage"
+                "(owner_id,imports_used,searches_used) VALUES (%s,3,17)",
+                (ledger,),
+            )
+            self.assertNotEqual(owner_a, owner_b)
+            self.assertEqual(ledger, usage_owner(conn, owner_a))
+            self.assertEqual(ledger, usage_owner(conn, owner_b))
+            usage = conn.execute(
+                "SELECT imports_used,searches_used FROM sceneit_import_usage "
+                "WHERE owner_id=%s", (usage_owner(conn, owner_b),)
+            ).fetchone()
+            self.assertEqual((3, 17), (usage["imports_used"], usage["searches_used"]))
+            with self.assertRaises(psycopg.errors.UniqueViolation):
+                conn.execute(
+                    "INSERT INTO sceneit_firebase_identities"
+                    "(id,project_id,issuer,firebase_uid,owner_id) "
+                    "VALUES (%s,'sceneit-test',"
+                    "'https://securetoken.google.com/sceneit-test',"
+                    "'uid-after-recreate',%s)",
+                    (uuid.uuid4(), owner_a),
+                )
+
+    def test_successful_firebase_exchange_persists_identity_and_emits_auth_state(self):
+        with self.conn() as conn:
+            migrate.upgrade(conn=conn)
+
+        @contextmanager
+        def schema_connection():
+            with self.conn() as conn:
+                yield conn
+
+        app = Flask(__name__)
+        app.config.update(
+            TESTING=True, SESSION_SECRET="s" * 48,
+            SCENEIT_PUBLIC_TRIAL_ENABLED=True,
+            FIREBASE_PROJECT_ID="sceneit-test",
+            FIREBASE_WEB_API_KEY="public-key",
+            FIREBASE_AUTH_DOMAIN="sceneit-test.firebaseapp.com",
+            FIREBASE_WEB_APP_ID="1:test:web:test",
+            FIREBASE_SERVICE_ACCOUNT_JSON="fixture",
+            FIREBASE_TRIAL_HASH_SECRET="immutable-postgres-fixture-secret-123456",
+        )
+        from sceneit.auth import auth_bp
+        app.register_blueprint(auth_bp)
+        now = int(__import__("time").time())
+        claims = {
+            "uid": "exchange-user", "sub": "exchange-user",
+            "aud": "sceneit-test",
+            "iss": "https://securetoken.google.com/sceneit-test",
+            "email": "person@example.com", "email_verified": True,
+            "auth_time": now,
+            "firebase": {"sign_in_provider": "password"},
+        }
+        provider = SimpleNamespace(
+            disabled=False, email="person@example.com", email_verified=True,
+            tokens_valid_after_timestamp=(now - 1) * 1000,
+        )
+        config = FirebaseConfig(
+            "sceneit-test", "public-key", "sceneit-test.firebaseapp.com",
+            "1:test:web:test", "fixture",
+            "immutable-postgres-fixture-secret-123456",
+        )
+        provider_emails = {"exchange-user": "person@example.com"}
+
+        def verified_token(token, _config):
+            result = dict(claims)
+            if token.startswith("changed-"):
+                result.update(email="changed@example.com")
+            elif token.startswith("recreated-"):
+                result.update(uid="recreated-user", sub="recreated-user")
+            elif token.startswith("concurrent-"):
+                result.update(
+                    uid="concurrent-user", sub="concurrent-user",
+                    email="concurrent@example.com",
+                )
+            return result
+
+        def provider_user(uid, _config):
+            return SimpleNamespace(
+                disabled=False, email=provider_emails[uid],
+                email_verified=True,
+                tokens_valid_after_timestamp=(now - 1) * 1000,
+            )
+
+        def exchange(token):
+            client = app.test_client()
+            challenge = client.get(
+                "/api/auth/firebase/challenge",
+                base_url="https://sceneit.example",
+            ).get_json()["csrfToken"]
+            return client.post(
+                "/api/auth/firebase/session", json={"idToken": token + "x" * 200},
+                headers={"X-CSRF-Token": challenge},
+                base_url="https://sceneit.example",
+            )
+
+        with patch("sceneit.firebase_auth.configured", return_value=True), \
+                patch("sceneit.firebase_auth.configuration", return_value=config), \
+                patch("sceneit.firebase_auth.verify_password_token",
+                      side_effect=verified_token), \
+                patch("sceneit.firebase_auth.provider_user",
+                      side_effect=provider_user), \
+                patch("sceneit.auth.connection", schema_connection), \
+                patch("sceneit.db.connection", schema_connection), \
+                patch("sceneit.resources.connection", schema_connection):
+            response = exchange("signed-provider-fixture-")
+            validator = Path(__file__).resolve().parents[3] / (
+                "scripts/validate-openapi-response.mjs"
+            )
+            validation = subprocess.run(
+                ["node", str(validator), "POST", "/auth/firebase/session", "200"],
+                input=json.dumps(response.get_json()), text=True,
+                capture_output=True, cwd=Path(__file__).resolve().parents[3],
+                timeout=15,
+            )
+            self.assertEqual(0, validation.returncode, validation.stderr)
+
+            with self.conn() as conn:
+                original = conn.execute(
+                    "SELECT owner_id,trial_ledger_id FROM "
+                    "sceneit_firebase_identities WHERE firebase_uid='exchange-user'"
+                ).fetchone()
+                conn.execute(
+                    "INSERT INTO sceneit_import_usage"
+                    "(owner_id,imports_used,searches_used) VALUES (%s,2,11)",
+                    (original["trial_ledger_id"],),
+                )
+
+            provider_emails["exchange-user"] = "changed@example.com"
+            changed = exchange("changed-")
+            self.assertEqual(409, changed.status_code)
+            self.assertEqual(
+                "firebase_identity_changed", changed.get_json()["code"]
+            )
+
+            provider_emails["recreated-user"] = "person@example.com"
+            recreated = exchange("recreated-")
+            self.assertEqual(200, recreated.status_code)
+            self.assertEqual(2, recreated.get_json()["usage"]["importsUsed"])
+
+            provider_emails["concurrent-user"] = "concurrent@example.com"
+            outcomes = []
+            failures = []
+            barrier = threading.Barrier(2)
+
+            def concurrent_exchange():
+                try:
+                    barrier.wait()
+                    outcomes.append(exchange("concurrent-"))
+                except Exception as exc:
+                    failures.append(repr(exc))
+
+            threads = [threading.Thread(target=concurrent_exchange) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(20)
+            self.assertEqual([], failures)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual([200, 200], sorted(item.status_code for item in outcomes))
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertEqual(
+            {
+                "user", "csrfToken", "pilotAdmitted", "capabilities",
+                "privateAccess", "usage",
+            },
+            set(payload),
+        )
+        self.assertEqual("firebase", payload["user"]["provider"])
+        self.assertTrue(payload["user"]["emailVerified"])
+        self.assertFalse(payload["pilotAdmitted"])
+        self.assertEqual("ready", payload["privateAccess"]["reason"])
+        self.assertEqual(3, payload["usage"]["importsRemaining"])
+        with self.conn() as conn:
+            identity = conn.execute(
+                "SELECT owner_id,trial_ledger_id FROM sceneit_firebase_identities "
+                "WHERE project_id='sceneit-test' AND firebase_uid='exchange-user'"
+            ).fetchone()
+            self.assertTrue(identity["owner_id"].startswith("firebase:"))
+            self.assertTrue(
+                identity["trial_ledger_id"].startswith("firebase-email-v1:")
+            )
+            self.assertEqual(
+                1, conn.execute(
+                    "SELECT count(*) AS n FROM sceneit_auth_sessions "
+                    "WHERE firebase_email='person@example.com'"
+                ).fetchone()["n"]
+            )
+            recreated_identity = conn.execute(
+                "SELECT owner_id,trial_ledger_id FROM sceneit_firebase_identities "
+                "WHERE firebase_uid='recreated-user'"
+            ).fetchone()
+            self.assertNotEqual(identity["owner_id"], recreated_identity["owner_id"])
+            self.assertEqual(
+                identity["trial_ledger_id"], recreated_identity["trial_ledger_id"]
+            )
+            # Material email change invalidated the original sessions; only the
+            # initial session was removed before the recreated account signed in.
+            self.assertEqual(
+                0, conn.execute(
+                    "SELECT count(*) AS n FROM sceneit_auth_sessions s JOIN "
+                    "sceneit_firebase_identities i ON i.id=s.firebase_identity_id "
+                    "WHERE i.firebase_uid='exchange-user'"
+                ).fetchone()["n"]
+            )
+            concurrent = conn.execute(
+                "SELECT count(*) AS identities,count(DISTINCT owner_id) AS owners "
+                "FROM sceneit_firebase_identities "
+                "WHERE firebase_uid='concurrent-user'"
+            ).fetchone()
+            self.assertEqual((1, 1), (
+                concurrent["identities"], concurrent["owners"]
+            ))
 
     def test_shared_permits_expiry_throttle_and_db_connection_cap(self):
         with self.conn() as conn:

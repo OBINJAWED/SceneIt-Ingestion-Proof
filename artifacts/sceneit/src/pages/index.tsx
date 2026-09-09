@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useLocation } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { useAuth } from '@workspace/replit-auth-web';
 import {
   useGetImportConfig,
@@ -18,20 +18,30 @@ import { parseSourceKind } from '@/lib/source-utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { importError } from '@/lib/import-errors';
 import { cn } from '@/lib/utils';
+import { TrialAllowance } from '@/components/trial-allowance';
+import { canReadPrivate, privateAccessMessage } from '@/lib/private-access';
 
 export default function ImportsIndex() {
+  const auth = useAuth();
+  return <ImportEntry key={`${auth.user?.id || 'anonymous'}:${auth.csrfToken || ''}`} />;
+}
+
+function ImportEntry() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { isAuthenticated, login, csrfToken } = useAuth();
+  const auth = useAuth();
+  const { isAuthenticated, csrfToken } = auth;
+  const privateReadable = canReadPrivate(auth);
   const queryClient = useQueryClient();
 
   const { data: config } = useGetImportConfig({
-    query: { queryKey: ['/api/imports/config'] }
+    query: { queryKey: ['/api/imports/config'], enabled: privateReadable }
   });
+  const lifetime = auth.usage?.lifetime ?? (auth.user?.provider === 'firebase' || config?.quotaMode !== 'monthly');
   const { data: currentImport } = useGetCurrentImport({
     query: {
       queryKey: ['/api/imports/current'],
-      enabled: isAuthenticated,
+      enabled: privateReadable,
     }
   });
 
@@ -92,9 +102,11 @@ export default function ImportsIndex() {
       if (activeTab === 'link' && linkUrl) {
         sessionStorage.setItem('pendingImportLink', linkUrl);
       }
-      login();
+      setLocation('/auth?returnTo=%2F');
       return;
     }
+    if (auth.error || !auth.privateAccess.allowed || !auth.usage
+      || auth.usage.importsRemaining <= 0 || !config?.workerAvailable) return;
 
     if (activeTab === 'link') {
       if (!linkUrl) return;
@@ -119,10 +131,12 @@ export default function ImportsIndex() {
 
         sessionStorage.removeItem('pendingImportLink');
         queryClient.invalidateQueries({ queryKey: ['/api/imports/current'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
         setLocation(`/imports/${res.id}`);
       } catch (err: any) {
         toast({ title: 'Import Failed', description: importError(err), variant: 'destructive' });
         queryClient.invalidateQueries({ queryKey: ['/api/imports/current'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
         setIsProcessing(false);
       }
     } else {
@@ -138,10 +152,12 @@ export default function ImportsIndex() {
           }
         });
         queryClient.invalidateQueries({ queryKey: ['/api/imports/current'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
         setLocation(`/imports/${res.id}`);
       } catch (err: any) {
         toast({ title: 'Initialization Failed', description: importError(err), variant: 'destructive' });
         queryClient.invalidateQueries({ queryKey: ['/api/imports/current'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
         setIsProcessing(false);
       }
     }
@@ -157,7 +173,7 @@ export default function ImportsIndex() {
             <AlertTriangle className="size-5 text-yellow-500 shrink-0 mt-0.5" />
             <div className="text-sm text-yellow-500 leading-relaxed">
               <strong className="block mb-1 font-semibold text-yellow-500/90">Index Worker Unavailable</strong>
-              Our indexing servers are currently offline or at capacity. You can still initiate imports, but they will remain in a 'queued' state until capacity frees up.
+              The processing worker is unavailable. New imports are paused here until it returns. This is separate from your remaining account allowance.
             </div>
           </div>
         )}
@@ -171,7 +187,19 @@ export default function ImportsIndex() {
           </p>
         </div>
 
-        {currentImport && currentImport.state !== 'failed' && currentImport.state !== 'cancelled' && currentImport.state !== 'expired' && (
+        <TrialAllowance />
+        {(auth.error || !auth.privateAccess.allowed) && <section className="rounded-xl border border-border bg-card p-5 space-y-3" role="status">
+          <p className="text-sm leading-6">{auth.error ? 'Session check unavailable. Processing is closed until your account can be verified.'
+            : privateAccessMessage(!isAuthenticated && auth.capabilities.unavailableReason ? auth.capabilities.unavailableReason : auth.privateAccess.reason)}</p>
+          <div className="flex flex-wrap gap-3">
+            {!isAuthenticated && <Button asChild><Link href="/auth">Create account or sign in</Link></Button>}
+            {auth.user?.provider === 'firebase' && <Button asChild variant="outline"><Link href="/auth?mode=signin">Verify email or sign in again</Link></Button>}
+            {auth.error && <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] })}>Retry session check</Button>}
+          </div>
+          <p className="text-xs text-muted-foreground">A small lifetime trial. No payment required. Signing in never starts processing automatically.</p>
+        </section>}
+
+        {privateReadable && currentImport && currentImport.state !== 'failed' && currentImport.state !== 'cancelled' && currentImport.state !== 'expired' && (
           <Card className="border-primary/30 bg-primary/5 shadow-sm">
             <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
@@ -342,11 +370,11 @@ export default function ImportsIndex() {
               type="submit"
               form="import-form"
               className="w-full h-12 text-base font-semibold shadow-sm"
-              disabled={isProcessing || (activeTab === 'link' && !linkUrl) || (activeTab === 'link' && linkUrl && !activeSourceKind) || !rightsAuthorized}
+              disabled={isProcessing || auth.isLoading || !!auth.error || (isAuthenticated && (!auth.privateAccess.allowed || !auth.usage || auth.usage.importsRemaining <= 0 || !config?.workerAvailable)) || (activeTab === 'link' && !linkUrl) || (activeTab === 'link' && linkUrl && !activeSourceKind) || !rightsAuthorized}
             >
               {isProcessing ? (
                 <><Loader2 className="size-5 animate-spin mr-2" /> Processing...</>
-              ) : activeTab === 'upload' ? (
+              ) : !isAuthenticated ? 'Sign in to continue' : activeTab === 'upload' ? (
                 <>Continue to upload</>
               ) : (
                 <>Start processing</>
@@ -358,12 +386,12 @@ export default function ImportsIndex() {
         {config && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
             <div className="p-4 border border-border/60 bg-card rounded-lg shadow-sm">
-              <div className="text-2xl font-bold text-foreground">{config.ownerImportLimit}</div>
-              <div className="text-xs text-muted-foreground font-medium mt-1">Lifetime Attempts</div>
+              <div className="text-2xl font-bold text-foreground">{auth.usage?.importLimit ?? config.ownerImportLimit}</div>
+              <div className="text-xs text-muted-foreground font-medium mt-1">{lifetime ? 'Lifetime' : 'Current Window'} Attempts</div>
             </div>
             <div className="p-4 border border-border/60 bg-card rounded-lg shadow-sm">
-              <div className="text-2xl font-bold text-foreground">{config.ownerSearchLimit}</div>
-              <div className="text-xs text-muted-foreground font-medium mt-1">Lifetime Searches</div>
+              <div className="text-2xl font-bold text-foreground">{auth.usage?.searchLimit ?? config.ownerSearchLimit}</div>
+              <div className="text-xs text-muted-foreground font-medium mt-1">{lifetime ? 'Lifetime' : 'Current Window'} Searches</div>
             </div>
             <div className="p-4 border border-border/60 bg-card rounded-lg shadow-sm">
               <div className="text-2xl font-bold text-foreground">{config.retentionDays}</div>
@@ -379,8 +407,10 @@ export default function ImportsIndex() {
         )}
         {config && (
           <p className="text-xs text-muted-foreground text-center max-w-2xl mx-auto leading-relaxed">
-            Account allowances include failed and cancelled attempts and never reset when changing videos.
-            Pilot-wide limits: {config.appImportLimit} import attempts and {config.appSearchLimit} searches.
+            {lifetime ? 'Lifetime account allowances include failed and cancelled reserved attempts. No monthly refresh and no payment required.'
+              : 'Current subscription allowances include failed and cancelled reserved attempts. Deletion does not restore consumed usage.'}{' '}
+            App-wide limits: {config.appImportLimit} import attempts and {config.appSearchLimit} searches.
+            These are operation allowances, not a guaranteed dollar spending ceiling.
           </p>
         )}
 

@@ -5,8 +5,10 @@
  * SceneIt one-video ingestion and semantic-search proof.
  * OpenAPI spec version: 0.1.0
  */
+import type { ApiFailureState } from './apiFailureState';
 
 export interface ApiFailure {
   error: string;
   code: string;
+  state?: ApiFailureState;
 }

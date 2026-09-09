@@ -27,9 +27,10 @@ or cross-video search product.
 - Inspect/apply development migrations explicitly with `python3 scripts/migrate-development.py --development --status` or `--development --upgrade`.
 - The post-merge hook may run that explicit development upgrade only; web/worker startup and production builds never migrate.
 - Production migration is a one-shot operator action from `artifacts/api-server`: `uv run --locked python -m sceneit.migrate status`, then `uv run --locked python -m sceneit.migrate upgrade --operator-approved`. It is never part of startup/build.
-- New auth uses verified OIDC + PKCE and PostgreSQL sessions. Files are private App Storage objects; every new media/status/search operation is owner-scoped.
+- Auth retains Replit OIDC + PKCE and adds default-off Firebase email/password onboarding with PostgreSQL sessions. Files remain private App Storage objects; every private media/status/search operation is owner-scoped. Firebase signup never grants shared-proof pilot admission.
 - Development runs web and import worker as separate workflows. `start:with-worker` supplies a supervised production launch option, but is **not enabled**. The current autoscale web-only deployment cannot run durable ingestion; obtain approval before changing runtime, billing, or deployment.
 - See `artifacts/api-server/docs/import-operations.md` for limits, retention, extractor controls, and operator reconciliation.
+- See `artifacts/api-server/docs/email-trial-operations.md` for explicit Firebase configuration, additive migration, lifetime trial accounting, bounded session revalidation and controlled rollout. Implementation/fixtures do not authorize public activation or live email/video work.
 - See `artifacts/api-server/docs/pilot-operations.md` for admission/proxy settings, release approval, uncertain-search reconciliation, backup/restore, and rollback/forward-repair.
 - See `artifacts/api-server/docs/billing-operations.md` for disabled-by-default billing configuration, payment policy, usage windows, operator stops, reconciliation, and separately approved activation.
 - Fixture and development-upgrade evidence is recorded in `artifacts/api-server/docs/pilot-verification.md`; it is not live provider or real-phone playback certification.

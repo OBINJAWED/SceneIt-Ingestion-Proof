@@ -65,6 +65,7 @@ const importFixture = {
   searchLimit: 5,
   importsUsed: 1,
   importLimit: 2,
+  budgetReserved: true,
 };
 
 const config = {
@@ -96,18 +97,57 @@ async function fixtureApi(
   } = {},
 ) {
   let signedOut = false;
+  const serveProof = options.onProof ?? ((route: Route) => json(route, { ...proof }));
   await page.route('https://www.youtube.com/**', route => route.abort());
   await page.route('**/api/**', async route => {
     const request = route.request();
     const url = new URL(request.url());
     if (url.pathname === '/api/auth/session' || url.pathname === '/api/auth/user') {
       if (signedOut) {
-        return json(route, { user: null, csrfToken: null, pilotAdmitted: false });
+        return json(route, {
+          user: null,
+          csrfToken: null,
+          pilotAdmitted: false,
+          capabilities: {
+            replit: true,
+            emailPassword: false,
+            publicTrialEnabled: false,
+            unavailableReason: 'public_trial_disabled',
+            firebaseConfig: null,
+          },
+          privateAccess: { allowed: false, reason: 'authentication_required' },
+          usage: null,
+        });
       }
       return json(route, {
-        user: { id: 'pilot-fixture', firstName: 'Pilot' },
+        user: {
+          id: 'pilot-fixture',
+          firstName: 'Pilot',
+          provider: 'replit',
+          email: null,
+          emailVerified: false,
+        },
         csrfToken: 'fixture-csrf',
         pilotAdmitted: options.admitted ?? true,
+        capabilities: {
+          replit: true,
+          emailPassword: false,
+          publicTrialEnabled: false,
+          unavailableReason: 'public_trial_disabled',
+          firebaseConfig: null,
+        },
+        privateAccess: (options.admitted ?? true)
+          ? { allowed: true, reason: 'ready' }
+          : { allowed: false, reason: 'pilot_not_admitted' },
+        usage: {
+          importsUsed: 1,
+          importLimit: 2,
+          importsRemaining: 1,
+          searchesUsed: 1,
+          searchLimit: 5,
+          searchesRemaining: 4,
+          lifetime: true,
+        },
       });
     }
     if (url.pathname === '/api/logout') {
@@ -116,8 +156,7 @@ async function fixtureApi(
       return json(route, { success: true });
     }
     if (url.pathname === '/api/proof') {
-      if (options.onProof) return options.onProof(route);
-      return json(route, proof);
+      return serveProof(route);
     }
     if (url.pathname === '/api/proof/readiness') {
       return json(route, {
@@ -261,7 +300,7 @@ test('logout clears SceneIt storage and selected proof UI', async ({ page }) => 
   await page.evaluate(() => localStorage.setItem('sceneit:selected-result', 'stale'));
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect.poll(() => loggedOut).toBe(true);
-  await expect(page.getByRole('heading', { name: 'SceneIt controlled pilot' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Find scenes in your videos.' })).toBeVisible();
   await expect(page.getByText('Source Frame Evidence')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => localStorage.getItem('sceneit:selected-result'))).toBeNull();
 });

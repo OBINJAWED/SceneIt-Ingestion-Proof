@@ -77,6 +77,37 @@ class ContractEmissionTests(unittest.TestCase):
         self.assertEqual(emitted.status_code, 200)
         self.assert_contract("GET", "/proof/readiness", emitted)
 
+    def test_lifetime_usage_emission_without_current_import(self):
+        usage = {
+            "importsUsed": 3, "importLimit": 3, "importsRemaining": 0,
+            "searchesUsed": 50, "searchLimit": 50, "searchesRemaining": 0,
+            "lifetime": True,
+        }
+        with patch("sceneit.auth._session_from_cookie", return_value=SESSION), \
+                patch("sceneit.import_limits.usage_snapshot", return_value=usage):
+            emitted = self.client.get(
+                "/api/auth/session", base_url="https://sceneit.example"
+            )
+        self.assertEqual(200, emitted.status_code)
+        self.assertEqual(usage, emitted.get_json()["usage"])
+        self.assertTrue(emitted.get_json()["privateAccess"]["allowed"])
+        self.assert_contract("GET", "/auth/session", emitted)
+
+    def test_trial_and_capacity_failures_are_distinct_typed_emissions(self):
+        from sceneit.http import problem_response
+        for code, state in (
+            ("owner_import_limit", "trial_exhausted"),
+            ("owner_search_limit", "trial_exhausted"),
+            ("app_import_limit", "capacity_exhausted"),
+            ("app_search_limit", "capacity_exhausted"),
+        ):
+            with self.subTest(code=code), self.app.test_request_context(
+                "/api/imports", base_url="https://sceneit.example"
+            ):
+                emitted = problem_response("Allowance reached.", code, 429)
+                self.assertEqual(state, emitted.get_json()["state"])
+                self.assert_contract("POST", "/imports", emitted)
+
     def test_protected_failure_and_search_operation_emissions(self):
         with patch("sceneit.auth._session_from_cookie", return_value=None):
             denied = self.client.get(

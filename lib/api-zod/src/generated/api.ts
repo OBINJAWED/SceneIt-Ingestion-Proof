@@ -9,16 +9,72 @@ import * as zod from 'zod';
 
 
 /**
- * @summary Read the current pilot session and admission decision
+ * @summary Read sign-in capabilities, private eligibility and usage allowances
  */
+export const getAuthSessionResponseUsageOneImportsUsedMin = 0;
+
+export const getAuthSessionResponseUsageOneImportLimitMin = 0;
+
+export const getAuthSessionResponseUsageOneImportsRemainingMin = 0;
+
+export const getAuthSessionResponseUsageOneSearchesUsedMin = 0;
+
+export const getAuthSessionResponseUsageOneSearchLimitMin = 0;
+
+export const getAuthSessionResponseUsageOneSearchesRemainingMin = 0;
+
+
+
 export const GetAuthSessionResponse = zod.object({
   "csrfToken": zod.string().nullable(),
   "pilotAdmitted": zod.boolean().describe('Server-authoritative pilot admission. False for anonymous, denied, or indeterminate sessions.'),
   "user": zod.object({
   "id": zod.string(),
-  "firstName": zod.string().nullable()
-}).nullable()
+  "firstName": zod.string().nullable(),
+  "provider": zod.enum(['replit', 'firebase']),
+  "email": zod.string().nullable(),
+  "emailVerified": zod.boolean()
+}).nullable(),
+  "capabilities": zod.object({
+  "replit": zod.boolean(),
+  "emailPassword": zod.boolean(),
+  "publicTrialEnabled": zod.boolean(),
+  "unavailableReason": zod.union([zod.literal('public_trial_disabled'),zod.literal('firebase_not_configured'),zod.literal(null)]).nullable(),
+  "firebaseConfig": zod.object({
+  "apiKey": zod.string(),
+  "authDomain": zod.string(),
+  "projectId": zod.string(),
+  "appId": zod.string()
+}).nullable().describe('Public web configuration only, never Admin credentials')
+}),
+  "privateAccess": zod.object({
+  "allowed": zod.boolean().describe('Identity eligibility for new private work; quotas and worker availability are checked separately'),
+  "reason": zod.enum(['ready', 'authentication_required', 'verification_required', 'public_trial_disabled', 'firebase_not_configured', 'identity_unavailable', 'pilot_not_admitted'])
+}),
+  "usage": zod.union([zod.object({
+  "importsUsed": zod.number().int().min(getAuthSessionResponseUsageOneImportsUsedMin),
+  "importLimit": zod.number().int().min(getAuthSessionResponseUsageOneImportLimitMin),
+  "importsRemaining": zod.number().int().min(getAuthSessionResponseUsageOneImportsRemainingMin),
+  "searchesUsed": zod.number().int().min(getAuthSessionResponseUsageOneSearchesUsedMin),
+  "searchLimit": zod.number().int().min(getAuthSessionResponseUsageOneSearchLimitMin),
+  "searchesRemaining": zod.number().int().min(getAuthSessionResponseUsageOneSearchesRemainingMin),
+  "lifetime": zod.boolean().describe('True for cumulative Firebase trial allowances; false for recurring paid Replit-owner allowances.')
+}).describe('Operation allowances, not a dollar ceiling. Firebase trial usage is cumulative with no monthly reset; paid Replit-owner usage follows incoming recurring commercial allowance windows.'),zod.null()])
 })
+
+
+export const getCurrentAuthUserResponseUsageOneImportsUsedMin = 0;
+
+export const getCurrentAuthUserResponseUsageOneImportLimitMin = 0;
+
+export const getCurrentAuthUserResponseUsageOneImportsRemainingMin = 0;
+
+export const getCurrentAuthUserResponseUsageOneSearchesUsedMin = 0;
+
+export const getCurrentAuthUserResponseUsageOneSearchLimitMin = 0;
+
+export const getCurrentAuthUserResponseUsageOneSearchesRemainingMin = 0;
+
 
 
 export const GetCurrentAuthUserResponse = zod.object({
@@ -26,8 +82,112 @@ export const GetCurrentAuthUserResponse = zod.object({
   "pilotAdmitted": zod.boolean().describe('Server-authoritative pilot admission. False for anonymous, denied, or indeterminate sessions.'),
   "user": zod.object({
   "id": zod.string(),
-  "firstName": zod.string().nullable()
-}).nullable()
+  "firstName": zod.string().nullable(),
+  "provider": zod.enum(['replit', 'firebase']),
+  "email": zod.string().nullable(),
+  "emailVerified": zod.boolean()
+}).nullable(),
+  "capabilities": zod.object({
+  "replit": zod.boolean(),
+  "emailPassword": zod.boolean(),
+  "publicTrialEnabled": zod.boolean(),
+  "unavailableReason": zod.union([zod.literal('public_trial_disabled'),zod.literal('firebase_not_configured'),zod.literal(null)]).nullable(),
+  "firebaseConfig": zod.object({
+  "apiKey": zod.string(),
+  "authDomain": zod.string(),
+  "projectId": zod.string(),
+  "appId": zod.string()
+}).nullable().describe('Public web configuration only, never Admin credentials')
+}),
+  "privateAccess": zod.object({
+  "allowed": zod.boolean().describe('Identity eligibility for new private work; quotas and worker availability are checked separately'),
+  "reason": zod.enum(['ready', 'authentication_required', 'verification_required', 'public_trial_disabled', 'firebase_not_configured', 'identity_unavailable', 'pilot_not_admitted'])
+}),
+  "usage": zod.union([zod.object({
+  "importsUsed": zod.number().int().min(getCurrentAuthUserResponseUsageOneImportsUsedMin),
+  "importLimit": zod.number().int().min(getCurrentAuthUserResponseUsageOneImportLimitMin),
+  "importsRemaining": zod.number().int().min(getCurrentAuthUserResponseUsageOneImportsRemainingMin),
+  "searchesUsed": zod.number().int().min(getCurrentAuthUserResponseUsageOneSearchesUsedMin),
+  "searchLimit": zod.number().int().min(getCurrentAuthUserResponseUsageOneSearchLimitMin),
+  "searchesRemaining": zod.number().int().min(getCurrentAuthUserResponseUsageOneSearchesRemainingMin),
+  "lifetime": zod.boolean().describe('True for cumulative Firebase trial allowances; false for recurring paid Replit-owner allowances.')
+}).describe('Operation allowances, not a dollar ceiling. Firebase trial usage is cumulative with no monthly reset; paid Replit-owner usage follows incoming recurring commercial allowance windows.'),zod.null()])
+})
+
+
+/**
+ * @summary Start a short-lived same-origin email session exchange
+ */
+export const GetFirebaseChallengeResponse = zod.object({
+  "csrfToken": zod.string()
+})
+
+
+/**
+ * @summary Exchange a fresh Firebase ID token for an application session
+ */
+export const ExchangeFirebaseSessionHeader = zod.object({
+  "X-CSRF-Token": zod.string()
+})
+
+export const exchangeFirebaseSessionBodyIdTokenMin = 20;
+export const exchangeFirebaseSessionBodyIdTokenMax = 8192;
+
+
+
+export const ExchangeFirebaseSessionBody = zod.object({
+  "idToken": zod.string().min(exchangeFirebaseSessionBodyIdTokenMin).max(exchangeFirebaseSessionBodyIdTokenMax)
+})
+
+export const exchangeFirebaseSessionResponseUsageOneImportsUsedMin = 0;
+
+export const exchangeFirebaseSessionResponseUsageOneImportLimitMin = 0;
+
+export const exchangeFirebaseSessionResponseUsageOneImportsRemainingMin = 0;
+
+export const exchangeFirebaseSessionResponseUsageOneSearchesUsedMin = 0;
+
+export const exchangeFirebaseSessionResponseUsageOneSearchLimitMin = 0;
+
+export const exchangeFirebaseSessionResponseUsageOneSearchesRemainingMin = 0;
+
+
+
+export const ExchangeFirebaseSessionResponse = zod.object({
+  "csrfToken": zod.string().nullable(),
+  "pilotAdmitted": zod.boolean().describe('Server-authoritative pilot admission. False for anonymous, denied, or indeterminate sessions.'),
+  "user": zod.object({
+  "id": zod.string(),
+  "firstName": zod.string().nullable(),
+  "provider": zod.enum(['replit', 'firebase']),
+  "email": zod.string().nullable(),
+  "emailVerified": zod.boolean()
+}).nullable(),
+  "capabilities": zod.object({
+  "replit": zod.boolean(),
+  "emailPassword": zod.boolean(),
+  "publicTrialEnabled": zod.boolean(),
+  "unavailableReason": zod.union([zod.literal('public_trial_disabled'),zod.literal('firebase_not_configured'),zod.literal(null)]).nullable(),
+  "firebaseConfig": zod.object({
+  "apiKey": zod.string(),
+  "authDomain": zod.string(),
+  "projectId": zod.string(),
+  "appId": zod.string()
+}).nullable().describe('Public web configuration only, never Admin credentials')
+}),
+  "privateAccess": zod.object({
+  "allowed": zod.boolean().describe('Identity eligibility for new private work; quotas and worker availability are checked separately'),
+  "reason": zod.enum(['ready', 'authentication_required', 'verification_required', 'public_trial_disabled', 'firebase_not_configured', 'identity_unavailable', 'pilot_not_admitted'])
+}),
+  "usage": zod.union([zod.object({
+  "importsUsed": zod.number().int().min(exchangeFirebaseSessionResponseUsageOneImportsUsedMin),
+  "importLimit": zod.number().int().min(exchangeFirebaseSessionResponseUsageOneImportLimitMin),
+  "importsRemaining": zod.number().int().min(exchangeFirebaseSessionResponseUsageOneImportsRemainingMin),
+  "searchesUsed": zod.number().int().min(exchangeFirebaseSessionResponseUsageOneSearchesUsedMin),
+  "searchLimit": zod.number().int().min(exchangeFirebaseSessionResponseUsageOneSearchLimitMin),
+  "searchesRemaining": zod.number().int().min(exchangeFirebaseSessionResponseUsageOneSearchesRemainingMin),
+  "lifetime": zod.boolean().describe('True for cumulative Firebase trial allowances; false for recurring paid Replit-owner allowances.')
+}).describe('Operation allowances, not a dollar ceiling. Firebase trial usage is cumulative with no monthly reset; paid Replit-owner usage follows incoming recurring commercial allowance windows.'),zod.null()])
 })
 
 
@@ -201,6 +361,7 @@ export const GetImportConfigResponse = zod.object({
 
 export const GetCurrentImportResponse = zod.union([zod.object({
   "id": zod.string(),
+  "budgetReserved": zod.boolean().describe('This import has already consumed a lifetime attempt; continuation never consumes another attempt'),
   "title": zod.string(),
   "entryMethod": zod.enum(['upload', 'link']),
   "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
@@ -242,6 +403,7 @@ export const CreateImportBody = zod.object({
 
 export const CreateImportResponse = zod.object({
   "id": zod.string(),
+  "budgetReserved": zod.boolean().describe('This import has already consumed a lifetime attempt; continuation never consumes another attempt'),
   "title": zod.string(),
   "entryMethod": zod.enum(['upload', 'link']),
   "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
@@ -275,6 +437,7 @@ export const GetImportParams = zod.object({
 
 export const GetImportResponse = zod.object({
   "id": zod.string(),
+  "budgetReserved": zod.boolean().describe('This import has already consumed a lifetime attempt; continuation never consumes another attempt'),
   "title": zod.string(),
   "entryMethod": zod.enum(['upload', 'link']),
   "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
@@ -321,6 +484,7 @@ export const ReserveImportUploadBody = zod.object({
 export const ReserveImportUploadResponse = zod.object({
   "import": zod.object({
   "id": zod.string(),
+  "budgetReserved": zod.boolean().describe('This import has already consumed a lifetime attempt; continuation never consumes another attempt'),
   "title": zod.string(),
   "entryMethod": zod.enum(['upload', 'link']),
   "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
@@ -366,6 +530,7 @@ export const CompleteImportUploadBody = zod.object({
 
 export const CompleteImportUploadResponse = zod.object({
   "id": zod.string(),
+  "budgetReserved": zod.boolean().describe('This import has already consumed a lifetime attempt; continuation never consumes another attempt'),
   "title": zod.string(),
   "entryMethod": zod.enum(['upload', 'link']),
   "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
@@ -403,6 +568,7 @@ export const CancelImportBody = zod.object({
 
 export const CancelImportResponse = zod.object({
   "id": zod.string(),
+  "budgetReserved": zod.boolean().describe('This import has already consumed a lifetime attempt; continuation never consumes another attempt'),
   "title": zod.string(),
   "entryMethod": zod.enum(['upload', 'link']),
   "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
@@ -440,6 +606,7 @@ export const AuthorizeImportPlaybackBody = zod.object({
 
 export const AuthorizeImportPlaybackResponse = zod.object({
   "id": zod.string(),
+  "budgetReserved": zod.boolean().describe('This import has already consumed a lifetime attempt; continuation never consumes another attempt'),
   "title": zod.string(),
   "entryMethod": zod.enum(['upload', 'link']),
   "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),

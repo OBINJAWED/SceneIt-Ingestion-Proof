@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from sceneit.billing_config import reset_billing_settings
+from sceneit.import_limits import OWNER_IMPORT_LIMIT, OWNER_SEARCH_LIMIT
 from sceneit.imports import present_import
 from sceneit.server import create_app
 
@@ -115,6 +116,39 @@ class CommercialContractTests(unittest.TestCase):
         self.assertEqual("monthly", config.get_json()["quotaMode"])
         self.assertEqual(7, config.get_json()["ownerImportLimit"])
         self.assertEqual(11, config.get_json()["ownerSearchLimit"])
+        self.assert_contract_response("GET", "/imports/config", config)
+
+    def test_enabled_billing_keeps_firebase_config_on_lifetime_limits(self):
+        firebase_session = {
+            **SESSION,
+            "user_id": "firebase:fixture-owner",
+            "provider": "firebase",
+            "email_verified": True,
+        }
+        billing = {
+            "enabled": True,
+            "limits": {"imports": 7, "searches": 11},
+            "app_limits": {"imports": 70, "searches": 110},
+        }
+        with patch(
+            "sceneit.auth._session_from_cookie", return_value=firebase_session
+        ), patch(
+            "sceneit.auth.revalidate_firebase_session", return_value=True
+        ), patch(
+            "sceneit.billing_config.billing_settings", return_value=billing
+        ):
+            config = self.client.get(
+                "/api/imports/config", base_url="https://sceneit.example"
+            )
+
+        self.assertEqual(200, config.status_code)
+        self.assertEqual("lifetime", config.get_json()["quotaMode"])
+        self.assertEqual(
+            OWNER_IMPORT_LIMIT, config.get_json()["ownerImportLimit"]
+        )
+        self.assertEqual(
+            OWNER_SEARCH_LIMIT, config.get_json()["ownerSearchLimit"]
+        )
         self.assert_contract_response("GET", "/imports/config", config)
 
     def test_presented_import_emits_required_quota_mode(self):

@@ -5,7 +5,10 @@
  * SceneIt one-video ingestion and semantic-search proof.
  * OpenAPI spec version: 0.1.0
  */
+import type { AuthCapabilities } from './authCapabilities';
 import type { AuthStateUser } from './authStateUser';
+import type { PrivateAccess } from './privateAccess';
+import type { TrialUsage } from './trialUsage';
 
 export interface AuthState {
   /** @nullable */
@@ -14,4 +17,7 @@ export interface AuthState {
   pilotAdmitted: boolean;
   /** @nullable */
   user: AuthStateUser;
+  capabilities: AuthCapabilities;
+  privateAccess: PrivateAccess;
+  usage: TrialUsage | null;
 }

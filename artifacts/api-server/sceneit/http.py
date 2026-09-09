@@ -169,6 +169,16 @@ def set_operation_context(operation_id=None, attempt_id=None):
 
 
 def _failure_state(code, status):
+    if code == "verification_required":
+        return "verification_required"
+    if code in {"owner_import_limit", "owner_search_limit"}:
+        return "trial_exhausted"
+    if code in {"app_import_limit", "app_search_limit"}:
+        return "capacity_exhausted"
+    if code == "firebase_not_configured":
+        return "configuration_required"
+    if code == "public_trial_disabled":
+        return "admission_required"
     if status == 401:
         return "unauthorized"
     if status == 403:
