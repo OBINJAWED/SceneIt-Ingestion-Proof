@@ -263,11 +263,17 @@ def search_scenes(payload):
 
 def report():
     proof = public_proof()
-    alignment_limit = (
-        "Timeline verification covers four representative saved scenes, not every frame of either edit."
-        if proof["timelineStatus"] == "verified"
-        else "YouTube edit/timeline alignment is not independently verified."
-    )
+    if proof["timelineStatus"] == "verified":
+        alignment_limit = (
+            "Timeline verification covers representative saved scenes, not every frame of either edit."
+        )
+    elif proof["timelineStatus"] == "mismatch":
+        alignment_limit = (
+            "Paired playback found a YouTube edit/timeline mismatch; retained timestamps "
+            "may not match the indexed source."
+        )
+    else:
+        alignment_limit = "YouTube edit/timeline alignment is not independently verified."
     return {
         "proof": proof, "searches": list_searches(),
         "limitations": [

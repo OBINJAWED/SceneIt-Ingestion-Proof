@@ -1,3 +1,4 @@
 - [YouTube playback validation](youtube-playback-validation.md) — metadata and player readiness do not prove embedded playback; test actual playback before claiming alignment.
 - [Private upload sessions](private-upload-sessions.md) — application deadlines do not expire GCS bearer sessions; preserve generation constraints and explicit revocation.
 - [OIDC system trust](oidc-system-trust.md) — the test issuer may require runtime system CA trust; keep TLS and JWT verification enabled.
+- [Python workspace integrity](python-workspace-integrity.md) — installed-package metadata can outlive restored package contents; distinguish incomplete dependencies from code regressions.

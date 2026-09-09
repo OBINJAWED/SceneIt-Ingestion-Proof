@@ -1,6 +1,7 @@
-"""Free, deterministic checks; these never call Twelve Labs."""
+"""Free, deterministic checks; these never call Twelve Labs or object storage."""
 import unittest
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 from pydantic import ValidationError
@@ -98,6 +99,129 @@ class SearchBoundaryTests(unittest.TestCase):
     def test_source_publication_requires_explicit_permission(self):
         with self.assertRaises(RuntimeError):
             publish_source(False, "public-app-viewers")
+
+
+class ProofReportRouteTests(unittest.TestCase):
+    VERIFIED_LIMIT = (
+        "Timeline verification covers representative saved scenes, not every frame of either edit."
+    )
+    MISMATCH_LIMIT = (
+        "Paired playback found a YouTube edit/timeline mismatch; retained timestamps "
+        "may not match the indexed source."
+    )
+    UNVERIFIED_LIMIT = "YouTube edit/timeline alignment is not independently verified."
+
+    def setUp(self):
+        self.enterContext(patch.dict(app.config, TESTING=True))
+        self.client = app.test_client()
+        recorded_at = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+        self.proof = {
+            "id": "one-video-proof", "title": "Alignment regression fixture",
+            "youtube_id": "vLqagjJAvU8", "state": "ready", "message": "Ready to search.",
+            "asset_id": "uploaded-file", "provider_duration": 100.0,
+            "searches_used": 1, "search_limit": 50, "updated_at": recorded_at,
+            "media": {
+                "duration": 100.0, "width": 1920, "height": 1080,
+                "size": 123456, "hasAudio": True,
+                # These passed checks must never imply cross-edit verification.
+                "youtubeMetadataVerified": True,
+                "playbackObservation": {"status": "played"},
+            },
+        }
+        saved_search = {
+            "id": "saved-search", "query": "A person walking", "modality": "visual",
+            "created_at": recorded_at, "latency_ms": 120, "partial": False, "matches": [],
+        }
+        # Stub persistence only: the status, report, saved-search presentation and
+        # Flask JSON response all run unchanged.
+        self.enterContext(patch("sceneit.proof.get_proof", return_value=self.proof))
+        conn = self.enterContext(patch("sceneit.proof.connection")).return_value.__enter__.return_value
+        conn.execute.return_value.fetchone.return_value = {"n": 1}
+        conn.execute.return_value.fetchall.return_value = [saved_search]
+
+        # Fail before provider setup or HTTP traffic, even if a future read path
+        # tries to refresh evidence or sign a storage URL. Also catch swallowed errors.
+        for target in ("sceneit.proof.TwelveLabsClient", "httpx.Client.send", "httpx.AsyncClient.send"):
+            guard = self.enterContext(patch(
+                target, side_effect=AssertionError("Evidence reads must not make external calls.")
+            ))
+            self.addCleanup(guard.assert_not_called)
+
+    def assert_alignment_report(self, timeline_status, check_status, detail, limitation):
+        status_response = self.client.get("/api/proof")
+        report_response = self.client.get("/api/proof/report")
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(report_response.status_code, 200)
+        self.assertTrue(status_response.is_json)
+        self.assertTrue(report_response.is_json)
+        status = status_response.get_json()
+        report = report_response.get_json()
+        self.assertEqual(report["proof"], status)
+        self.assertEqual(status["timelineStatus"], timeline_status)
+        alignment_checks = [check for check in status["checks"] if check["id"] == "alignment"]
+        self.assertEqual(len(alignment_checks), 1)
+        self.assertEqual(alignment_checks[0]["status"], check_status)
+        self.assertEqual(alignment_checks[0]["detail"], detail)
+        # Check the downloaded list itself, not another call to the mapping helper.
+        self.assertEqual(report["limitations"].count(limitation), 1)
+        for other in (self.VERIFIED_LIMIT, self.MISMATCH_LIMIT, self.UNVERIFIED_LIMIT):
+            if other != limitation:
+                self.assertNotIn(other, report["limitations"])
+        self.assertNotIn("four representative", " ".join(report["limitations"]))
+        self.assertEqual(report["searches"], [{
+            "id": "saved-search", "query": "A person walking", "modality": "visual",
+            "createdAt": "2026-09-01T12:00:00+00:00", "latencyMs": 120,
+            "provider": "Twelve Labs", "partial": False, "matches": [],
+        }])
+        return status
+
+    def test_verified_report_limits_claim_to_sampled_moments(self):
+        for sample_count in (4, 2, None):
+            with self.subTest(sample_count=sample_count):
+                observation = {"status": "verified"}
+                if sample_count is not None:
+                    observation["sampleCount"] = sample_count
+                self.proof["media"]["alignmentObservation"] = observation
+                prefix = (
+                    f"{sample_count} representative saved scenes" if sample_count
+                    else "Representative saved scenes"
+                )
+                self.assert_alignment_report(
+                    "verified", "passed",
+                    f"{prefix} matched the YouTube edit at their retained timestamps during paired playback. "
+                    "No stable offset or edit divergence was observed; verification covers the sampled moments.",
+                    self.VERIFIED_LIMIT,
+                )
+
+    def test_mismatched_report_warns_about_retained_timestamps(self):
+        for summary in ("The YouTube edit omits the opening scene.", None):
+            with self.subTest(summary=summary):
+                observation = {"status": "mismatch"}
+                if summary is not None:
+                    observation["summary"] = summary
+                self.proof["media"]["alignmentObservation"] = observation
+                self.assert_alignment_report(
+                    "mismatch", "failed",
+                    summary or "Paired playback showed that the indexed source and YouTube edit do not share one timeline.",
+                    self.MISMATCH_LIMIT,
+                )
+
+    def test_unverified_report_is_not_promoted_by_other_passed_checks(self):
+        for observation in (None, {}, {"status": "unverified"}, {"status": "unknown"}):
+            with self.subTest(observation=observation):
+                if observation is None:
+                    self.proof["media"].pop("alignmentObservation", None)
+                else:
+                    self.proof["media"]["alignmentObservation"] = observation
+                status = self.assert_alignment_report(
+                    "unverified", "unverified",
+                    "Compare paired source and YouTube playback at saved timestamps. "
+                    "A matching link, still, or duration alone does not verify the edit.",
+                    self.UNVERIFIED_LIMIT,
+                )
+                for check in status["checks"]:
+                    if check["id"] in ("youtube", "embed", "duration"):
+                        self.assertEqual(check["status"], "passed")
 
 
 class SourcePlaybackRouteTests(unittest.TestCase):
