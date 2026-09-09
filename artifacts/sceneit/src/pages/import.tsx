@@ -16,22 +16,64 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatTime } from '@/lib/utils';
 import { importError } from '@/lib/import-errors';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import {
+  AlertTriangle, ArrowLeft, CheckCircle2, Clock3, ExternalLink, Film,
+  Loader2, LockKeyhole, Search, ShieldCheck, Trash2,
+} from 'lucide-react';
 
 export default function SingleImport() {
   const { id = '' } = useParams();
   const auth = useAuth();
   return <div className="min-h-screen bg-background">
     <AuthHeader />
-    {auth.isLoading ? <p className="p-8" role="status">Checking your private session…</p>
-      : !auth.isAuthenticated ? <main className="mx-auto max-w-xl p-8 space-y-4">
-        <h1 className="text-2xl font-bold">Sign in to your private analysis</h1>
-        <p>Your video and saved results are only available to their owner.</p>
-        {auth.error && <p role="alert">Sign-in status could not be checked. Refresh to retry.</p>}
-        <Button onClick={auth.login}>Sign in with Replit</Button>
+    {auth.isLoading ? <main className="grid min-h-[70vh] place-items-center p-6">
+      <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+        <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Checking your private session…
+      </div>
+    </main>
+      : !auth.isAuthenticated ? <main className="mx-auto grid min-h-[70vh] max-w-5xl place-items-center p-4 sm:p-8">
+        <Card className="w-full max-w-lg rounded-xl border-border/70">
+          <CardHeader className="space-y-4 p-6 sm:p-8">
+            <div className="grid size-11 place-items-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
+              <LockKeyhole className="size-5" aria-hidden="true" />
+            </div>
+            <div className="space-y-2">
+              <CardTitle className="text-2xl sm:text-3xl">Your private analysis</CardTitle>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Sign in to access this video, its processing status, and saved search results. Only the owner can continue.
+              </p>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 px-6 pb-6 sm:px-8 sm:pb-8">
+            {auth.error && <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+              Sign-in status could not be checked. Refresh the page or try signing in again.
+            </div>}
+            <Button className="w-full sm:w-auto" onClick={auth.login} data-testid="button-sign-in">
+              <ShieldCheck className="mr-2 size-4" aria-hidden="true" /> Sign in with Replit
+            </Button>
+          </CardContent>
+        </Card>
       </main> : <Analysis key={`${auth.user?.id}:${id}`} id={id} token={auth.csrfToken || ''} />}
   </div>;
 }
 
+function CandidateFrame({ match }: { match: ImportMatch }) {
+  const [unavailable, setUnavailable] = useState(false);
+  useEffect(() => setUnavailable(false), [match.frameUrl]);
+  if (!match.frameUrl || unavailable) return <div className="grid aspect-video w-full place-items-center rounded-lg border border-dashed bg-background/40 p-6 text-center">
+    <div className="space-y-2">
+      <Film className="mx-auto size-7 text-muted-foreground" aria-hidden="true" />
+      <p className="text-sm font-medium">Frame preview unavailable</p>
+      <p className="text-xs leading-5 text-muted-foreground">Use private source playback or the candidate timestamps instead.</p>
+    </div>
+  </div>;
+  return <img key={match.frameUrl} src={match.frameUrl} loading="lazy"
+    className="aspect-video w-full rounded-lg bg-black object-contain"
+    alt={`Indexed source candidate near ${formatTime(match.startSeconds)}`}
+    onError={() => setUnavailable(true)} />;
+}
 function Analysis({ id, token }: { id: string; token: string }) {
   const cache = useQueryClient();
   const headers = { 'X-CSRF-Token': token };
@@ -74,7 +116,7 @@ function Analysis({ id, token }: { id: string; token: string }) {
   }, [historyQuery.data]);
   async function runSearch(event: React.FormEvent) {
     event.preventDefault();
-    if (!ready || busy || !text.trim()) return;
+    if (!ready || busy || !text.trim() || (item && item.searchesUsed >= item.searchLimit)) return;
     setBusy(true); setError('');
     try {
       selectSearch(await searchImport(id, { query: text.trim(), modality }, { headers }));
@@ -109,58 +151,95 @@ function Analysis({ id, token }: { id: string; token: string }) {
     catch (failure) { setError(importError(failure)); }
     finally { setBusy(false); }
   }
-  if (itemQuery.isLoading) return <p className="p-8" role="status">Loading private analysis…</p>;
-  if (!item) return <main className="mx-auto max-w-xl space-y-4 p-8">
-    <h1 className="text-2xl font-bold">Analysis unavailable</h1>
-    <p role="alert">{importError(itemQuery.error)}</p>
-    <Button onClick={() => itemQuery.refetch()}>Retry</Button>
-    <Link href="/" className="block text-primary underline">Return to video imports</Link>
+  if (itemQuery.isLoading) return <main className="grid min-h-[65vh] place-items-center p-6">
+    <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+      <Loader2 className="size-4 animate-spin" aria-hidden="true" /> Loading private analysis…
+    </div>
+  </main>;
+  if (!item) return <main className="mx-auto grid min-h-[65vh] max-w-xl place-items-center p-4 sm:p-8">
+    <Card className="w-full rounded-xl">
+      <CardHeader><CardTitle>Analysis unavailable</CardTitle></CardHeader>
+      <CardContent className="space-y-5">
+        <p role="alert" className="break-words text-sm leading-6 text-muted-foreground">{importError(itemQuery.error)}</p>
+        <div className="flex flex-wrap gap-3">
+          <Button onClick={() => itemQuery.refetch()} data-testid="button-retry-analysis">Retry</Button>
+          <Button variant="outline" asChild><Link href="/" data-testid="link-imports">Return to imports</Link></Button>
+        </div>
+      </CardContent>
+    </Card>
   </main>;
   const waitingForFile = ['awaiting_upload', 'file_required'].includes(item.state);
   const terminal = ['failed', 'cancelled', 'expired', 'needs_review'].includes(item.state);
   const canCancel = !['cancelled', 'expired', 'cancel_requested'].includes(item.state);
-  const sourceName = item.sourceKind === 'x' ? 'X / Twitter' : item.sourceKind === 'file' ? 'Standalone MP4' : item.sourceKind;
-  return <main className="mx-auto max-w-7xl p-4 md:p-8 space-y-6">
-    <header className="flex flex-wrap items-start justify-between gap-4 border-b pb-5">
-      <div className="min-w-0 space-y-2">
-        <Link href="/" className="text-sm text-primary underline">Upload another video / demo</Link>
-        <h1 className="break-all text-2xl font-bold">{item.title}</h1>
+  const sourceName = { file: 'Standalone MP4', youtube: 'YouTube', x: 'X / Twitter', tiktok: 'TikTok', vimeo: 'Vimeo' }[item.sourceKind];
+  const stateLabel = item.state.replaceAll('_', ' ');
+  return <main className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+    <header className="flex flex-col gap-5 border-b border-border/70 pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0 space-y-3">
+        <Link href="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          data-testid="link-back-imports">
+          <ArrowLeft className="size-4" aria-hidden="true" /> Back to video imports
+        </Link>
+        <div className="space-y-2">
+          <Badge variant="outline" className="rounded-full font-sans normal-case tracking-normal">
+            <LockKeyhole className="mr-1.5 size-3" aria-hidden="true" /> Owner-only
+          </Badge>
+          <h1 className="break-words text-2xl font-semibold leading-tight sm:text-3xl" data-testid="text-import-title">{item.title}</h1>
+        </div>
         <p className="text-sm text-muted-foreground">{sourceName} · Private to your account
           {item.durationSeconds != null && ` · ${formatTime(item.durationSeconds)}`}
         </p>
       </div>
-      {canCancel && <Button variant="outline" onClick={() => setCancelOpen(true)} disabled={busy || cancelling}>
+      {canCancel && <Button variant="outline" onClick={() => setCancelOpen(true)} disabled={busy || cancelling} className="w-full shrink-0 sm:w-auto"
+        data-testid="button-cancel-import">
+        <Trash2 className="mr-2 size-4" aria-hidden="true" />
         {cancelling ? 'Requesting cancellation…' : cancelAttempted ? 'Retry cancellation' : ready ? 'Delete import' : waitingForFile ? 'Cancel upload' : 'Cancel import'}
       </Button>}
     </header>
     <CancelImportDialog open={cancelOpen} onOpenChange={setCancelOpen} onConfirm={cancel}
       pending={cancelling} upload={waitingForFile} ready={ready} />
-    {error && <p role="alert" className="border border-destructive p-4 text-destructive">{error}</p>}
-    {cancelAttempted && waitingForFile && <p role="status" className="border p-4">
+    {error && <div role="alert" className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" /><p className="min-w-0 break-words">{error}</p>
+    </div>}
+    {cancelAttempted && waitingForFile && <div role="status" className="rounded-lg border border-border/70 bg-card p-4 text-sm text-muted-foreground">
       The file transfer is stopped in this browser.
-      {cancelling ? ' Requesting cancellation and private media cleanup…' : 'Retry cancellation if it has not been confirmed.'}
-    </p>}
-    <section aria-live="polite" className="border p-4 space-y-2">
-      <h2 className="font-bold capitalize">{item.state.replaceAll('_', ' ')}</h2>
-      <p>{item.statusMessage}</p>
-      {item.progressPercent != null && !waitingForFile && <p>{Math.round(item.progressPercent)}%
-        {ready ? ' ready' : ' of the current transfer'}</p>}
-      {item.state === 'cancel_requested' && <p className="text-sm text-muted-foreground">
+      {cancelling ? ' Requesting cancellation and private media cleanup…' : ' Retry cancellation if it has not been confirmed.'}
+    </div>}
+    <section aria-live="polite" className="rounded-xl border border-border/70 bg-card p-5 sm:p-6" data-testid="status-import">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {ready ? <CheckCircle2 className="size-5 text-primary" aria-hidden="true" /> : <Clock3 className="size-5 text-muted-foreground" aria-hidden="true" />}
+            <h2 className="font-semibold capitalize">Ingestion: {stateLabel}</h2>
+          </div>
+          <p className="break-words text-sm leading-6 text-muted-foreground">{item.statusMessage}</p>
+        </div>
+        <Badge variant={ready ? 'default' : 'outline'} className="w-fit rounded-full font-sans normal-case tracking-normal">
+          {ready ? 'Ready to search' : item.state === 'cancel_requested' ? 'Cancellation requested' : waitingForFile ? 'File needed' : terminal ? 'Action needed' : 'Processing'}
+        </Badge>
+      </div>
+      {item.progressPercent != null && !waitingForFile && <div className="mt-5 space-y-2">
+        <div className="flex justify-between gap-4 text-xs text-muted-foreground">
+          <span>{ready ? 'Ingestion complete' : 'Current processing stage'}</span><span>{Math.round(item.progressPercent)}%</span>
+        </div>
+        <Progress value={item.progressPercent} className="h-2" />
+      </div>}
+      {item.state === 'cancel_requested' && <p className="mt-4 text-sm text-muted-foreground">
         Cancellation was received. Private media cleanup runs in the background; you can leave this page.
       </p>}
-      {!ready && !terminal && !waitingForFile && item.state !== 'cancel_requested' && <p className="text-sm text-muted-foreground">
-        Processing continues after this page closes. You can return to this analysis.
+      {!ready && !terminal && !waitingForFile && item.state !== 'cancel_requested' && <p className="mt-4 text-sm text-muted-foreground">
+        Processing continues after you leave this page. You can return at any time.
       </p>}
-      {item.state === 'needs_review' && <p className="text-sm">
+      {item.state === 'needs_review' && <p className="mt-4 rounded-lg border border-border bg-background/50 p-3 text-sm">
         Processing has stopped for operator reconciliation. It will not be purchased again automatically.
       </p>}
-      {config && !config.workerAvailable && <p className="text-sm text-yellow-400">
+      {config && !config.workerAvailable && <p className="mt-4 rounded-lg border border-border bg-background/50 p-3 text-sm text-foreground">
         The processing worker is unavailable. New jobs cannot advance until it returns.
       </p>}
     </section>
-    {waitingForFile && <Card><CardHeader><CardTitle>Choose your authorized MP4</CardTitle></CardHeader>
+    {waitingForFile && <Card className="rounded-xl"><CardHeader className="pb-3"><CardTitle>Choose your authorized MP4</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        <p>The source link, if supplied, stays attached. Re-select your file after a reload or interrupted upload.
+        <p className="text-sm leading-6 text-muted-foreground">The source link, if supplied, stays attached. Re-select your file after a reload or interrupted upload.
           Uploading is not complete until the server validates its contents.</p>
         <UploadPanel importId={id} config={config} onSuccess={refresh}
           cancellationSignal={uploadCancellation.signal} cancellationPending={cancelling}
@@ -168,105 +247,137 @@ function Analysis({ id, token }: { id: string; token: string }) {
       </CardContent>
     </Card>}
     <div className="grid gap-6 lg:grid-cols-2">
-      <div className="space-y-6">
-        <Card><CardHeader><CardTitle>Indexed source playback</CardTitle></CardHeader>
+      <div className="min-w-0 space-y-6">
+        <Card className="rounded-xl"><CardHeader className="pb-3"><CardTitle>Private source playback</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-3 rounded-lg border border-border/70 bg-background/40 p-4">
               <Switch id="private-playback" checked={item.playbackAuthorized}
-                disabled={!ready || busy} onCheckedChange={playback} />
-              <label htmlFor="private-playback" className="text-sm">
-                I authorize owner-only playback of this import’s source file.
-                <span className="block text-muted-foreground">Separate from analysis permission. You may revoke this here.</span>
+                disabled={!ready || busy} onCheckedChange={playback} data-testid="switch-private-playback" />
+              <label htmlFor="private-playback" className="min-w-0 text-sm font-medium leading-5">
+                Allow owner-only playback of the indexed source file
+                <span className="mt-1 block font-normal text-muted-foreground">This permission is separate from ingestion and search. You can revoke it here.</span>
               </label>
             </div>
             {ready && item.sourcePlaybackAvailable && item.sourcePlaybackUrl ?
               <PrivateSourcePlayer key={item.id} src={item.sourcePlaybackUrl}
                 startSeconds={selected?.startSeconds} endSeconds={selected?.endSeconds}
                 matchKey={String(selection)} /> :
-              <p className="text-sm text-muted-foreground">{ready
-                ? 'Enable private source playback above to watch the indexed MP4.'
-                : 'Source playback becomes available after validation and indexing.'}</p>}
+              <div className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">{ready
+                ? item.playbackAuthorized
+                  ? 'Private playback is authorized, but the source is not currently available. Your search results and timestamps remain accessible.'
+                  : 'Ingestion is ready. Enable private source playback above to watch the indexed MP4.'
+                : 'Playback availability is separate from ingestion readiness. It can be requested after validation and indexing.'}</div>}
           </CardContent>
         </Card>
-        {item.sourceUrl && <Card><CardHeader><CardTitle>Linked platform — separate source</CardTitle></CardHeader>
+        {item.sourceUrl && <Card className="rounded-xl"><CardHeader className="pb-3"><CardTitle>Linked platform source</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm">This link has not been verified as the same edit as the indexed MP4.
-              Playback or matching durations do not establish timeline alignment.</p>
+            <div className="rounded-lg border border-border/70 bg-background/40 p-4 text-sm leading-6"><strong>Timeline not verified.</strong> This link has not been verified as the same edit as the indexed MP4.
+              Playback or matching durations do not establish timeline alignment.</div>
             {item.sourceKind === 'youtube' && item.externalId && (
-              <iframe className="aspect-video w-full" title="Official YouTube linked video"
+              <iframe className="aspect-video w-full rounded-lg border border-border" title="Official YouTube linked video"
                 src={`https://www.youtube.com/embed/${encodeURIComponent(item.externalId)}?playsinline=1`}
                 allow="encrypted-media; picture-in-picture; fullscreen" allowFullScreen
                 referrerPolicy="strict-origin-when-cross-origin" />
             )}
-            <a className="block break-all text-sm text-primary underline" href={item.sourceUrl} target="_blank" rel="noreferrer">
-              Open original {sourceName} link
+            <a className="inline-flex max-w-full items-center gap-2 break-all text-sm text-primary underline underline-offset-4" href={item.sourceUrl} target="_blank" rel="noreferrer"
+              data-testid="link-external-source">
+              <ExternalLink className="size-4 shrink-0" aria-hidden="true" /> <span className="break-all">Open original {sourceName} link</span>
             </a>
             <p className="text-xs text-muted-foreground">Platform playback may be unavailable. No linked-video timestamp alignment is claimed.
               {item.sourceKind !== 'youtube' && ' This platform is offered as a source link, not a fabricated seek control.'}</p>
           </CardContent>
         </Card>}
-        {ready && selected?.frameUrl && <Card><CardHeader><CardTitle>Candidate source frame</CardTitle></CardHeader>
-          <CardContent>
-            <img key={selected.frameUrl} src={selected.frameUrl} className="aspect-video w-full object-contain bg-black"
-              alt={`Indexed source candidate near ${formatTime(selected.startSeconds)}`}
-              onError={event => { event.currentTarget.alt = 'Source thumbnail unavailable. Use the private video or timestamps.'; }} />
+        {ready && selected && <Card className="rounded-xl"><CardHeader className="pb-3"><CardTitle>Candidate source frame</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <CandidateFrame match={selected} />
+            <p className="text-xs text-muted-foreground">Frame near {formatTime(selected.startSeconds)} in the indexed source.</p>
           </CardContent>
         </Card>}
       </div>
-      <div className="space-y-6">
-        <Card><CardHeader><CardTitle>Find relevant moments</CardTitle></CardHeader><CardContent className="space-y-4">
+      <div className="min-w-0 space-y-6">
+        <Card className="rounded-xl"><CardHeader className="pb-3"><CardTitle>Search this video</CardTitle></CardHeader><CardContent className="space-y-5">
           <form className="space-y-3" onSubmit={runSearch}>
-            <label htmlFor="scene-query" className="text-sm">Describe a scene or event</label>
+            <label htmlFor="scene-query" className="text-sm font-medium">Describe a scene, action, or spoken moment</label>
             <Input id="scene-query" value={text} maxLength={400} onChange={event => setText(event.target.value)}
-              placeholder="Someone enters a room…" disabled={!ready || busy} />
-            <label className="flex flex-wrap items-center gap-3 text-sm">Search in
-              <select aria-label="Search modality" className="border bg-background p-2" value={modality}
+              placeholder="For example, someone enters a room" disabled={!ready || busy} className="h-11"
+              data-testid="input-scene-query" />
+            <label className="flex flex-wrap items-center gap-3 text-sm font-medium">Search mode
+              <select aria-label="Search modality" className="h-11 max-w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" value={modality}
                 disabled={!ready || busy} onChange={event => setModality(event.target.value as typeof modality)}>
                 <option value="visual">Visual scenes</option>
                 {item.hasAudio && <><option value="audio">Audio</option><option value="both">Visual and audio</option></>}
               </select>
             </label>
-            {item.hasAudio === false && <p className="text-xs text-muted-foreground">Silent video: visual search is available; audio is disabled.</p>}
-            <Button type="submit" disabled={!ready || busy || !text.trim()}>
-              {busy ? 'Please wait…' : 'Find moments'}
+            {item.hasAudio === false && <p className="rounded-lg border border-border/70 bg-background/40 p-3 text-xs text-muted-foreground">
+              This video is silent. Visual search remains available; audio search is disabled.
+            </p>}
+            <Button type="submit" disabled={!ready || busy || !text.trim() || item.searchesUsed >= item.searchLimit} className="w-full sm:w-auto" data-testid="button-search">
+              {busy ? <><Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" /> Please wait…</> : <><Search className="mr-2 size-4" aria-hidden="true" /> Search scenes</>}
             </Button>
           </form>
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Try a suggestion</p>
+            <div className="flex flex-wrap gap-2">
             {['Someone enters a room', 'An object moves across the scene'].map(prompt =>
-              <Button key={prompt} size="sm" variant="outline" disabled={!ready || busy} onClick={() => setText(prompt)}>{prompt}</Button>)}
+              <Button key={prompt} size="sm" variant="outline" disabled={!ready || busy} onClick={() => setText(prompt)}
+                className="h-auto max-w-full whitespace-normal py-2 text-left" data-testid={`button-suggestion-${prompt.startsWith('Someone') ? 'entry' : 'object'}`}>
+                {prompt}
+              </Button>)}
+            </div>
           </div>
           <p className="text-xs text-muted-foreground">
             Up to five ranked candidate matches, not exhaustive event detection or guaranteed matches.
             Confidence labels come from the search provider, not a certainty score.
           </p>
-          <p className="text-sm">{item.searchesUsed} / {item.searchLimit} cumulative account searches used.
-            Saved searches can be reopened without a new request.</p>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-background/40 p-3 text-sm">
+            <span><strong>{item.searchesUsed} of {item.searchLimit}</strong> account searches used</span>
+            <span className="text-xs text-muted-foreground">Saved searches use no additional request</span>
+          </div>
+          {item.searchesUsed >= item.searchLimit && <p role="status" className="rounded-lg border border-amber-400/25 bg-amber-400/5 p-3 text-sm text-amber-300">
+            Your account search allowance is used up. Saved results are still available below.
+          </p>}
         </CardContent></Card>
-        {ready && result && <Card><CardHeader><CardTitle>Candidate matches</CardTitle></CardHeader><CardContent className="space-y-3">
-          <p className="break-words">“{result.query}”</p>
-          <p className="text-xs text-muted-foreground">Saved Twelve Labs result · {result.modality}</p>
-          {result.partial && <p className="text-sm">Some invalid or unavailable provider candidates were omitted.</p>}
+        {ready && result && <Card className="rounded-xl"><CardHeader className="space-y-2 pb-3"><CardTitle>Candidate matches</CardTitle>
+          <p className="break-words text-sm text-muted-foreground">Results for “{result.query}”</p>
+        </CardHeader><CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">Saved provider result · {result.modality} search</p>
+          {result.partial && <p className="rounded-lg border border-border/70 p-3 text-sm">Some invalid or unavailable provider candidates were omitted.</p>}
           {!result.matches.length && <p>No relevant candidates were returned. Try a different description.</p>}
           {result.matches.map(match => <button key={match.rank} type="button"
-            className={`w-full border p-4 text-left ${selected?.rank === match.rank ? 'border-primary bg-primary/5' : ''}`}
-            onClick={() => { setSelected(match); setSelection(value => value + 1); }}>
-            <span className="block font-bold">#{match.rank} · {formatTime(match.startSeconds)} – {formatTime(match.endSeconds)}</span>
-            <span className="text-sm text-muted-foreground">{match.confidenceLabel || 'Confidence label unavailable'} · Select source segment</span>
+            className={`w-full rounded-lg border p-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring ${selected?.rank === match.rank ? 'border-primary bg-primary/10' : 'border-border hover:bg-background/60'}`}
+            onClick={() => { setSelected(match); setSelection(value => value + 1); }}
+            aria-pressed={selected?.rank === match.rank} aria-label={`Candidate ${match.rank}, ${formatTime(match.startSeconds)} to ${formatTime(match.endSeconds)}`}
+            data-testid={`button-match-${match.rank}`}>
+            <span className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold">Candidate {match.rank}</span>
+              {selected?.rank === match.rank && <Badge className="rounded-full font-sans normal-case tracking-normal">Selected</Badge>}
+            </span>
+            <span className="mt-2 block text-sm">{formatTime(match.startSeconds)} – {formatTime(match.endSeconds)}</span>
+            <span className="mt-1 block break-words text-xs text-muted-foreground">{match.confidenceLabel || 'Confidence label unavailable'} · Select to cue the private source segment</span>
           </button>)}
         </CardContent></Card>}
-        {ready && <Card><CardHeader><CardTitle>Saved searches</CardTitle></CardHeader><CardContent className="space-y-2">
+        {ready && !result && <Card className="rounded-xl"><CardContent className="p-6 text-center">
+          <Search className="mx-auto mb-3 size-7 text-muted-foreground" aria-hidden="true" />
+          <h2 className="text-sm font-medium">Find your first moment</h2>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Describe a scene above. Ranked candidates and source timestamps will appear here.</p>
+        </CardContent></Card>}
+        {ready && <Card className="rounded-xl"><CardHeader className="pb-3"><CardTitle>Search history</CardTitle></CardHeader><CardContent className="space-y-2">
           {historyQuery.isError && <p role="alert">History could not load. <button className="underline" onClick={() => historyQuery.refetch()}>Retry</button></p>}
           {!history.length && <p className="text-sm text-muted-foreground">Your searches for this video will appear here.</p>}
-          {history.map(search => <button key={search.id} className="block w-full break-words border p-3 text-left text-sm"
-            onClick={() => selectSearch(search)}>{search.query} · {search.matches.length} candidates</button>)}
+          {history.map(search => <button key={search.id}
+            className={`block w-full rounded-lg border p-3 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring ${result?.id === search.id ? 'border-primary bg-primary/10' : 'border-border hover:bg-background/60'}`}
+            onClick={() => selectSearch(search)} aria-pressed={result?.id === search.id} data-testid={`button-history-${search.id}`}>
+            <span className="block break-words font-medium">{search.query}</span>
+            <span className="mt-1 block text-xs text-muted-foreground">{search.matches.length} candidates · {search.modality}</span>
+          </button>)}
         </CardContent></Card>}
       </div>
     </div>
-    <footer className="border-t pt-4 text-sm text-muted-foreground space-y-2">
-      <p>{item.importsUsed} / {item.importLimit} lifetime account attempts used. Cancellation, failure, deletion, or changing entry method does not reset allowances.</p>
-      <p>Private media access ends {new Date(item.expiresAt).toLocaleString()}. Normal retention: {config?.retentionDays || 7} days.
+    <footer className="grid gap-3 border-t border-border/70 pt-5 text-xs leading-5 text-muted-foreground md:grid-cols-3">
+      <p><strong className="text-foreground">{item.importsUsed} of {item.importLimit} lifetime import attempts used.</strong><br />Cancellation, failure, deletion, or changing entry method does not reset allowances.</p>
+      <p><strong className="text-foreground">Private media access ends {new Date(item.expiresAt).toLocaleString()}.</strong><br />Normal retention: {config?.retentionDays || 7} days.
         Uncertain provider operations may need operator cleanup beyond that deadline.</p>
-      <p>Limits: 200 MB, H.264 MP4 with AAC audio or silent, 4 seconds–20 minutes.</p>
+      <p><strong className="text-foreground">Accepted media</strong><br />Up to 200 MB, H.264 MP4 with AAC audio or silent, 4 seconds–20 minutes.</p>
     </footer>
   </main>;
 }

@@ -18,6 +18,9 @@ export function SourceVideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [error, setError] = useState(false);
+
+  useEffect(() => { setError(false); }, [src]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -39,9 +42,9 @@ export function SourceVideoPlayer({
   };
 
   return (
-    <div className={cn('flex flex-col gap-3', className)}>
-      <div className="border-b border-primary/30 bg-primary/5 px-3 py-2 text-xs">
-        <strong className="text-primary">ORIGINAL SOURCE PLAYBACK</strong>
+    <div className={cn('flex min-w-0 flex-col gap-3', className)}>
+      <div className="border-b bg-muted/30 px-4 py-3 text-xs leading-relaxed">
+        <strong className="font-medium text-foreground">Original source playback</strong>
         <span className="text-muted-foreground"> — this is the indexed original, not verification of the YouTube edit.</span>
       </div>
       <video
@@ -51,36 +54,43 @@ export function SourceVideoPlayer({
         playsInline
         preload="metadata"
         onTimeUpdate={onTimeUpdate}
+        aria-label="Indexed original video"
+        onError={() => setError(true)}
         className="aspect-video w-full bg-black"
       />
+      {error && <p role="alert" className="mx-3 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">
+        The original video couldn’t play here. Your scene results and source frames are still available.
+        You can open the timestamp on YouTube below; its edit is a separate source.
+      </p>}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant={loopEnabled ? 'default' : 'outline'}
             size="sm"
             disabled={endSeconds === undefined}
             onClick={() => setLoopEnabled(value => !value)}
-            className="rounded-none"
+            aria-pressed={loopEnabled}
+            className="min-h-11"
           >
             <RotateCcw className="mr-2 size-4" />
-            {loopEnabled ? 'SEGMENT LOOP ON' : 'LOOP SEGMENT'}
+            {loopEnabled ? 'Loop enabled' : 'Loop segment'}
           </Button>
           {startSeconds !== undefined && (
-            <Button variant="ghost" size="sm" className="rounded-none" onClick={() => {
+            <Button variant="ghost" size="sm" className="min-h-11" onClick={() => {
               if (videoRef.current) videoRef.current.currentTime = startSeconds;
             }}>
-              REWIND TO {formatTime(startSeconds)}
+              Restart at {formatTime(startSeconds)}
             </Button>
           )}
         </div>
-        <Button variant="ghost" size="sm" asChild>
+        <Button variant="ghost" size="sm" className="min-h-11" asChild>
           <a href={youtubeUrl} target="_blank" rel="noreferrer">
-            <ExternalLink className="mr-2 size-3" /> OPEN YOUTUBE TIMESTAMP
+            <ExternalLink className="size-3" /> Open on YouTube
           </a>
         </Button>
         {onUseYouTube && (
-          <Button variant="outline" size="sm" className="rounded-none" onClick={onUseYouTube}>
-            VIEW YOUTUBE PLAYER
+          <Button variant="outline" size="sm" className="min-h-11" onClick={onUseYouTube}>
+            View YouTube player
           </Button>
         )}
       </div>

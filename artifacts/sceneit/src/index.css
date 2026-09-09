@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @plugin "@tailwindcss/typography";
@@ -67,54 +67,54 @@
 }
 
 :root, .dark {
-  /* Terminal Identity - Black & Neon Green */
-  --background: 0 0% 2%;
-  --foreground: 120 100% 65%;
-  --border: 120 50% 15%;
-  --input: 120 50% 15%;
-  --ring: 120 100% 50%;
+  /* Contemporary Professional Dark Theme - Deep Slate & Restrained Sage */
+  --background: 220 10% 6%;
+  --foreground: 220 10% 96%;
+  --border: 220 10% 16%;
+  --input: 220 10% 16%;
+  --ring: 160 15% 55%;
 
-  --card: 0 0% 4%;
-  --card-foreground: 120 100% 75%;
-  --card-border: 120 50% 15%;
+  --card: 220 10% 8%;
+  --card-foreground: 220 10% 96%;
+  --card-border: 220 10% 14%;
 
-  --popover: 0 0% 4%;
-  --popover-foreground: 120 100% 75%;
-  --popover-border: 120 50% 15%;
+  --popover: 220 10% 8%;
+  --popover-foreground: 220 10% 96%;
+  --popover-border: 220 10% 16%;
 
-  --primary: 120 100% 40%;
-  --primary-foreground: 0 0% 0%;
+  --primary: 160 15% 55%;
+  --primary-foreground: 220 10% 6%;
 
-  --secondary: 120 20% 10%;
-  --secondary-foreground: 120 100% 65%;
+  --secondary: 220 10% 14%;
+  --secondary-foreground: 220 10% 96%;
 
-  --muted: 120 20% 8%;
-  --muted-foreground: 120 40% 50%;
+  --muted: 220 10% 12%;
+  --muted-foreground: 220 5% 65%;
 
-  --accent: 120 40% 15%;
-  --accent-foreground: 120 100% 50%;
+  --accent: 220 10% 16%;
+  --accent-foreground: 220 10% 96%;
 
-  --destructive: 0 100% 50%;
-  --destructive-foreground: 0 0% 0%;
+  --destructive: 0 84% 65%;
+  --destructive-foreground: 220 10% 6%;
 
-  --chart-1: 120 100% 50%;
-  --chart-2: 140 100% 45%;
-  --chart-3: 160 100% 40%;
-  --chart-4: 180 100% 35%;
-  --chart-5: 200 100% 30%;
+  --chart-1: 160 15% 55%;
+  --chart-2: 200 15% 50%;
+  --chart-3: 40 20% 55%;
+  --chart-4: 280 15% 55%;
+  --chart-5: 320 15% 55%;
 
-  --sidebar: 0 0% 4%;
-  --sidebar-foreground: 120 100% 65%;
-  --sidebar-border: 120 50% 15%;
-  --sidebar-primary: 120 100% 40%;
-  --sidebar-primary-foreground: 0 0% 0%;
-  --sidebar-accent: 120 40% 15%;
-  --sidebar-accent-foreground: 120 100% 50%;
-  --sidebar-ring: 120 100% 50%;
+  --sidebar: 220 10% 6%;
+  --sidebar-foreground: 220 10% 96%;
+  --sidebar-border: 220 10% 16%;
+  --sidebar-primary: 160 15% 55%;
+  --sidebar-primary-foreground: 220 10% 6%;
+  --sidebar-accent: 220 10% 14%;
+  --sidebar-accent-foreground: 220 10% 96%;
+  --sidebar-ring: 160 15% 55%;
 
-  --app-font-sans: 'Space Grotesk', sans-serif;
+  --app-font-sans: 'Plus Jakarta Sans', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;
-  --radius: 0rem; /* Terminal aesthetic favors sharp edges */
+  --radius: 0.5rem;
 
   --tracking-normal: 0em;
   --spacing: 0.25rem;
@@ -126,29 +126,25 @@
   }
 
   body {
-    @apply font-mono antialiased bg-background text-foreground;
+    @apply font-sans antialiased bg-background text-foreground;
   }
 
-  h1, h2, h3, h4, h5, h6 {
-    @apply font-sans tracking-tight;
+  /* Global focus styles */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
-}
 
-/* Custom scrollbar for terminal vibe */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-track {
-  background: hsl(var(--background));
-  border-left: 1px solid hsl(var(--border));
-}
-::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted));
-  border: 1px solid hsl(var(--border));
-}
-::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--accent));
+  /* Global reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 @layer utilities {

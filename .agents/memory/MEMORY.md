@@ -2,3 +2,4 @@
 - [Private upload sessions](private-upload-sessions.md) — application deadlines do not expire GCS bearer sessions; preserve generation constraints and explicit revocation.
 - [OIDC system trust](oidc-system-trust.md) — the test issuer may require runtime system CA trust; keep TLS and JWT verification enabled.
 - [Python workspace integrity](python-workspace-integrity.md) — installed-package metadata can outlive restored package contents; distinguish incomplete dependencies from code regressions.
+- [Quota-safe UI validation](ui-validation-boundaries.md) — use saved results and intercepted mutations for visual checks, not live provider work.

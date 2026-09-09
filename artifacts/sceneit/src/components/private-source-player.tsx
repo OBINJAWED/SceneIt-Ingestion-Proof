@@ -41,9 +41,9 @@ export function PrivateSourcePlayer({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || startSeconds === undefined) return;
-    
+
     const seek = seekToStart;
-    
+
     if (video.readyState >= 1) {
       seek();
     } else {
@@ -56,7 +56,7 @@ export function PrivateSourcePlayer({
     const video = videoRef.current;
     if (!video) return;
     setCurrentTime(video.currentTime);
-    
+
     // timeupdate only fires while time advances, so a paused video stays paused.
     if (loopEnabled && !video.paused && !video.seeking && Number.isFinite(endSeconds)
         && endSeconds! > (startSeconds ?? 0) && endSeconds! <= video.duration
@@ -65,27 +65,28 @@ export function PrivateSourcePlayer({
     }
   };
 
-  if (unsupported) return <div className="space-y-3 border p-4">
+  if (unsupported) return <div className="space-y-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-4 text-sm leading-relaxed">
     <p role="alert">This browser does not support H.264 MP4 playback. Try a current Safari, Chrome, or Edge browser.
       Your analysis and timestamps are still available.</p>
     <a className="text-sm text-primary underline" href={src} download="private-source.mp4">Download your authorized private MP4</a>
   </div>;
 
   return (
-    <div className={cn('flex flex-col gap-3', className)}>
-      <div className="border-b border-primary/30 bg-primary/5 px-3 py-2 flex items-center justify-between">
-        <div className="text-xs">
-          <strong className="text-primary tracking-wider font-mono">PRIVATE_SOURCE_PLAYBACK</strong>
-          <span className="text-muted-foreground ml-2 hidden sm:inline">— Indexed original file</span>
+    <div className={cn('flex min-w-0 flex-col gap-3', className)}>
+      <div className="rounded-lg border bg-muted/30 px-3 py-2.5 flex items-center justify-between">
+        <div className="text-xs leading-relaxed">
+          <strong className="font-medium text-foreground">Private source playback</strong>
+          <span className="text-muted-foreground ml-2">— Indexed original file</span>
         </div>
       </div>
-      
+
       <video
         ref={videoRef}
         src={src}
         controls
         playsInline
         preload="metadata"
+        aria-label="Private indexed source video"
         onTimeUpdate={onTimeUpdate}
         onPlay={() => { playIntent.current = true; }}
         onPause={() => {
@@ -98,45 +99,46 @@ export function PrivateSourcePlayer({
             void video.play().catch(() => { playIntent.current = false; setError(true); });
           }
         }}
-        className="aspect-video w-full bg-black border border-border/30 shadow-inner"
+        className="aspect-video w-full rounded-lg bg-black border border-border/30"
         onError={() => setError(true)}
       />
-      {error && <p role="alert" className="px-3 text-sm text-destructive">
+      {error && <p role="alert" className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm leading-relaxed text-destructive">
         Private playback could not load or decode this MP4. Try a supported browser or check your session and permission.
         <a className="ml-2 underline" href={src} download="private-source.mp4">Download your authorized source</a>
       </p>}
-      
+
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant={loopEnabled ? 'default' : 'outline'}
             size="sm"
             disabled={endSeconds === undefined}
             onClick={() => setLoopEnabled(value => !value)}
-            className="rounded-none font-mono text-[10px] tracking-wider h-8"
+            aria-pressed={loopEnabled}
+            className="min-h-11"
           >
             <RotateCcw className="mr-2 size-3" />
-            {loopEnabled ? 'LOOP: ON' : 'LOOP_SEGMENT'}
+            {loopEnabled ? 'Loop enabled' : 'Loop segment'}
           </Button>
-          
+
           {startSeconds !== undefined && (
-            <Button 
+            <Button
               type="button"
-              variant="ghost" 
-              size="sm" 
-              className="rounded-none font-mono text-[10px] tracking-wider h-8 border border-transparent hover:border-primary/30" 
+              variant="ghost"
+              size="sm"
+              className="min-h-11"
               onClick={seekToStart}
             >
-              REWIND
+              Restart segment
             </Button>
           )}
         </div>
-        
+
         {sourceUrl && platformName && (
-          <Button type="button" variant="ghost" size="sm" className="h-8 text-[10px] font-mono tracking-wider hover:text-primary" asChild>
+          <Button type="button" variant="ghost" size="sm" className="min-h-11" asChild>
             <a href={sourceUrl} target="_blank" rel="noreferrer">
-              <ExternalLink className="mr-2 size-3" /> OPEN {platformName.toUpperCase()}
+              <ExternalLink className="size-3" /> Open on {platformName}
             </a>
           </Button>
         )}

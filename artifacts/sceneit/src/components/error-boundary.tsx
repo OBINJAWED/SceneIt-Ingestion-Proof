@@ -4,6 +4,8 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from 'react';
+import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export interface ErrorFallbackProps {
   error: Error;
@@ -37,30 +39,35 @@ function toError(value: unknown): Error {
 
 function DefaultFallback({ error, resetError }: ErrorFallbackProps) {
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50 p-6">
-      <div className="max-w-lg w-full text-center">
-        <h1 className="text-xl font-semibold text-gray-900">
-          Something went wrong
+    <main className="min-h-screen w-full flex items-center justify-center bg-background p-6">
+      <section className="max-w-lg min-w-0 w-full rounded-2xl border bg-card p-8 text-center sm:p-10">
+        <div className="mx-auto mb-6 flex size-14 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+          <AlertTriangle className="size-7" aria-hidden="true" />
+        </div>
+        <h1 className="text-2xl font-semibold text-foreground">
+          Something interrupted this view
         </h1>
-        <p className="mt-2 text-sm text-gray-600">
-          This part of the app hit an error. The rest of the app is still
-          running.
+        <p role="alert" className="mt-3 text-sm leading-relaxed text-muted-foreground">
+          SceneIt couldn’t display this part of the app. Try opening the view again.
         </p>
         {/* Dev only: messages can carry API responses and other internals. */}
         {import.meta.env.DEV ? (
-          <pre className="mt-4 overflow-x-auto rounded bg-gray-100 p-3 text-left text-xs text-gray-800">
-            {error.message || String(error)}
-          </pre>
+          <details className="mt-5 rounded-lg border bg-muted/40 p-3 text-left text-xs text-muted-foreground">
+            <summary className="cursor-pointer">Developer details</summary>
+            <pre className="mt-3 whitespace-pre-wrap break-words">
+              {error.message || String(error)}
+            </pre>
+          </details>
         ) : null}
-        <button
+        <Button
           type="button"
           onClick={resetError}
-          className="mt-4 rounded bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-700"
+          className="mt-6"
         >
-          Try again
-        </button>
-      </div>
-    </div>
+          <RotateCcw /> Try again
+        </Button>
+      </section>
+    </main>
   );
 }
 

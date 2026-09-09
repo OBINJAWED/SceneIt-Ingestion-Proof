@@ -1,6 +1,8 @@
-import { type ReactNode, useEffect } from 'react';
+import { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import { Link, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import { ArrowLeft, Film } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Home from '@/pages/home';
@@ -17,23 +19,42 @@ const queryClient = new QueryClient({
 });
 
 function Router() {
+  const [location] = useLocation();
+  useEffect(() => {
+    document.title = location === '/' ? 'SceneIt — Private video search'
+      : location === '/demo' ? 'SceneIt — Scene search demo'
+      : location.startsWith('/imports/') ? 'SceneIt — Private analysis'
+      : 'SceneIt — Page not found';
+  }, [location]);
+
   return (
     <Switch>
       <Route path="/" component={ImportsIndex} />
       <Route path="/demo" component={Home} />
       <Route path="/imports/:id" component={SingleImport} />
       <Route>
-        <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-background text-primary font-mono text-center p-4">
-          <h1 className="text-4xl font-bold mb-4 font-sans">&gt; 404_NOT_FOUND</h1>
-          <p className="text-muted-foreground">The requested route does not exist.</p>
-        </div>
+        <main className="min-h-[100dvh] flex items-center justify-center bg-background p-6">
+          <section className="w-full max-w-lg rounded-2xl border bg-card p-8 text-center sm:p-12">
+            <div className="mx-auto mb-6 flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <Film className="size-7" aria-hidden="true" />
+            </div>
+            <p className="mb-3 text-sm text-muted-foreground">SceneIt · 404</p>
+            <h1 className="text-3xl font-semibold tracking-tight">This scene is missing.</h1>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              We couldn’t find this page. Return to SceneIt to start with a video or explore the demo.
+            </p>
+            <Button className="mt-7" asChild>
+              <Link href="/"><ArrowLeft /> Back to SceneIt</Link>
+            </Button>
+          </section>
+        </main>
       </Route>
     </Switch>
   );
 }
 
 function App() {
-  // Force dark mode to match terminal aesthetic
+  // SceneIt uses a consistent dark viewing environment.
   useEffect(() => {
     document.documentElement.classList.add('dark');
   }, []);
