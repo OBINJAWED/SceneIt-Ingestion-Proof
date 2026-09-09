@@ -56,6 +56,7 @@ def initialize(source_name, youtube_id):
     if response.is_success:
         title = response.json().get("title", title)
         media["youtubeMetadataVerified"] = True
+        media["youtubeMetadataVideoId"] = youtube_id
     with connection() as conn:
         existing = conn.execute(
             "SELECT source_sha256, youtube_id FROM sceneit_proofs WHERE id = %s",

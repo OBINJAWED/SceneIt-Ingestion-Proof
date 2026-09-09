@@ -1,13 +1,16 @@
 """Free, deterministic checks; these never call Twelve Labs or object storage."""
+import json
 import unittest
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from unittest.mock import Mock, patch
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, Mock, patch
 
 from pydantic import ValidationError
 
 from sceneit.proof import ProofError, SceneQuery, alignment_evidence, normalize_matches
-from sceneit.worker import publish_source, run_step
+from sceneit.worker import initialize, publish_source, run_step
 from sceneit.storage import parse_object_path, safe_content_range
 from sceneit.server import app
 from copy import deepcopy
@@ -196,6 +199,213 @@ class AlignmentEvidenceTests(unittest.TestCase):
                 self.assertEqual(alignment["status"], "unverified" if changes else "passed")
 
 
+class YoutubeEvidenceIdentityTests(unittest.TestCase):
+    YOUTUBE_ID = "vLqagjJAvU8"
+    BLOCKED_DETAIL = (
+        "YouTube refused embedded playback in the automated preview (error 150). "
+        "Timestamp links remain available."
+    )
+
+    def setUp(self):
+        self.enterContext(patch.dict(app.config, TESTING=True))
+        self.client = app.test_client()
+        self.proof = {
+            "id": "youtube-identity-proof", "title": "YouTube identity fixture",
+            "source_sha256": "a" * 64, "youtube_id": self.YOUTUBE_ID,
+            "state": "ready", "message": "Ready", "asset_id": "uploaded-file",
+            "provider_duration": 10.0, "searches_used": 0, "search_limit": 50,
+            "updated_at": datetime(2026, 9, 1, tzinfo=timezone.utc),
+            "media": {
+                "duration": 10.0, "width": 1280, "height": 720,
+                "size": 1000, "hasAudio": True,
+                "youtubeMetadataVerified": True,
+                "youtubeMetadataVideoId": self.YOUTUBE_ID,
+                "playbackObservation": {
+                    "status": "played", "youtubeVideoId": self.YOUTUBE_ID,
+                },
+            },
+        }
+        self.saved_proof = None
+        self.get_proof = self.enterContext(
+            patch("sceneit.proof.get_proof", side_effect=self._read_proof)
+        )
+        self.connection = Mock()
+        self.connection.execute.return_value.fetchone.return_value = {"n": 0}
+        self.connection.execute.return_value.fetchall.return_value = []
+        connect = self.enterContext(patch("sceneit.proof.connection"))
+        connect.return_value.__enter__.return_value = self.connection
+        for target in ("sceneit.proof.TwelveLabsClient", "httpx.Client.send", "httpx.AsyncClient.send"):
+            guard = self.enterContext(patch(
+                target, side_effect=AssertionError("Proof reads must not make external calls.")
+            ))
+            self.addCleanup(guard.assert_not_called)
+
+    def _read_proof(self):
+        self.saved_proof = deepcopy(self.proof)
+        return self.proof
+
+    def checks(self, route="/api/proof"):
+        response = self.client.get(route)
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        proof = body["proof"] if route.endswith("/report") else body
+        return body, {check["id"]: check for check in proof["checks"]}
+
+    def test_matching_playback_identity_preserves_played_and_blocked_results(self):
+        for status, expected in (("played", "passed"), ("blocked", "failed")):
+            with self.subTest(status=status):
+                self.proof["media"]["playbackObservation"]["status"] = status
+                report, checks = self.checks("/api/proof/report")
+                self.assertEqual(checks["embed"]["status"], expected)
+                self.assertEqual(checks["youtube"]["status"], "passed")
+                self.assertEqual(self.BLOCKED_DETAIL in report["limitations"], status == "blocked")
+
+    def test_link_replacement_invalidates_both_youtube_checks_and_blocked_report_detail(self):
+        self.proof["youtube_id"] = "dQw4w9WgXcQ"
+        for status in ("played", "blocked"):
+            for route in ("/api/proof", "/api/proof/report"):
+                with self.subTest(status=status, route=route):
+                    self.proof["media"]["playbackObservation"]["status"] = status
+                    body, checks = self.checks(route)
+                    self.assertEqual(checks["youtube"]["status"], "unverified")
+                    self.assertEqual(checks["embed"]["status"], "unverified")
+                    self.assertNotIn("metadata matches", checks["youtube"]["detail"])
+                    if route.endswith("/report"):
+                        self.assertNotIn(self.BLOCKED_DETAIL, body["limitations"])
+
+    def test_absent_null_empty_and_invalid_recorded_ids_are_unverified(self):
+        original = deepcopy(self.proof)
+        invalid_values = (None, "", "   ", False, 0, [], "dQw4w9WgXcQ")
+        for field, container, status in (
+            ("youtubeVideoId", "playbackObservation", "played"),
+            ("youtubeVideoId", "playbackObservation", "blocked"),
+            ("youtubeMetadataVideoId", None, None),
+        ):
+            for value in ("absent", *invalid_values):
+                with self.subTest(field=field, status=status, value=value):
+                    proof = deepcopy(original)
+                    self.proof = proof
+                    if container:
+                        proof["media"][container]["status"] = status
+                        target = proof["media"][container]
+                    else:
+                        target = proof["media"]
+                    if value == "absent":
+                        target.pop(field, None)
+                    else:
+                        target[field] = value
+                    _, checks = self.checks()
+                    check_id = "embed" if container else "youtube"
+                    self.assertEqual(checks[check_id]["status"], "unverified")
+
+    def test_missing_or_invalid_current_id_invalidates_both_gates(self):
+        original = deepcopy(self.proof)
+        for youtube_id in ("absent", None, "", "   ", False, 0):
+            with self.subTest(youtube_id=youtube_id):
+                self.proof = deepcopy(original)
+                if youtube_id == "absent":
+                    self.proof.pop("youtube_id")
+                else:
+                    self.proof["youtube_id"] = youtube_id
+                _, checks = self.checks()
+                self.assertEqual(checks["youtube"]["status"], "unverified")
+                self.assertEqual(checks["embed"]["status"], "unverified")
+
+    def test_metadata_and_playback_identity_gates_are_independent(self):
+        cases = (
+            ("dQw4w9WgXcQ", self.YOUTUBE_ID, "unverified", "passed"),
+            (self.YOUTUBE_ID, "dQw4w9WgXcQ", "passed", "unverified"),
+        )
+        for metadata_id, playback_id, youtube_status, embed_status in cases:
+            with self.subTest(metadata_id=metadata_id, playback_id=playback_id):
+                self.proof["media"]["youtubeMetadataVideoId"] = metadata_id
+                self.proof["media"]["playbackObservation"]["youtubeVideoId"] = playback_id
+                _, checks = self.checks()
+                self.assertEqual(checks["youtube"]["status"], youtube_status)
+                self.assertEqual(checks["embed"]["status"], embed_status)
+
+    def test_unknown_or_malformed_playback_observations_are_unverified(self):
+        for observation in (
+            "absent", None, [], "played", {}, {"status": "unknown"},
+            {"status": None}, {"status": 1},
+        ):
+            with self.subTest(observation=observation):
+                if observation == "absent":
+                    self.proof["media"].pop("playbackObservation", None)
+                else:
+                    self.proof["media"]["playbackObservation"] = observation
+                _, checks = self.checks()
+                self.assertEqual(checks["embed"]["status"], "unverified")
+
+    def test_false_metadata_flag_is_unverified_even_with_matching_identity(self):
+        self.proof["media"]["youtubeMetadataVerified"] = False
+        _, checks = self.checks()
+        self.assertEqual(checks["youtube"]["status"], "unverified")
+
+    def test_reads_do_not_mutate_persisted_evidence(self):
+        self.proof["media"]["playbackObservation"]["status"] = "blocked"
+        for youtube_id in (self.YOUTUBE_ID, "dQw4w9WgXcQ"):
+            with self.subTest(youtube_id=youtube_id):
+                self.proof["youtube_id"] = youtube_id
+                self.checks("/api/proof/report")
+                self.assertEqual(self.proof, self.saved_proof)
+        self.assertTrue(self.connection.execute.call_args_list)
+        for call in self.connection.execute.call_args_list:
+            self.assertTrue(call.args[0].lstrip().upper().startswith("SELECT"))
+
+
+class InitializeYoutubeMetadataIdentityTests(unittest.TestCase):
+    def test_insert_binds_verified_metadata_to_checked_youtube_id_only_on_success(self):
+        youtube_id = "vLqagjJAvU8"
+        metadata = {
+            "format": {"duration": "12.5"},
+            "streams": [
+                {"codec_type": "video", "width": 1280, "height": 720},
+                {"codec_type": "audio"},
+            ],
+        }
+        for success in (True, False):
+            with self.subTest(success=success), TemporaryDirectory() as temp:
+                root = Path(temp)
+                assets = root / "attached_assets"
+                assets.mkdir()
+                source = assets / "source.mp4"
+                source.write_bytes(b"deterministic source")
+                completed = Mock(stdout=json.dumps(metadata).encode())
+                response = Mock(is_success=success)
+                response.json.return_value = {"title": "Checked title"}
+                connection = Mock()
+                connection.execute.return_value.fetchone.return_value = None
+                manager = MagicMock()
+                manager.__enter__.return_value = connection
+                with patch("sceneit.worker.ROOT", root), \
+                        patch("sceneit.worker.subprocess.run", return_value=completed) as ffprobe, \
+                        patch("sceneit.worker.httpx.get", return_value=response) as oembed, \
+                        patch("sceneit.worker.connection", return_value=manager):
+                    initialize("attached_assets/source.mp4", youtube_id)
+                ffprobe.assert_called_once()
+                oembed.assert_called_once_with(
+                    "https://www.youtube.com/oembed",
+                    params={
+                        "url": f"https://www.youtube.com/watch?v={youtube_id}",
+                        "format": "json",
+                    },
+                    timeout=20,
+                )
+                insert = next(
+                    call for call in connection.execute.call_args_list
+                    if "INSERT INTO sceneit_proofs" in call.args[0]
+                )
+                inserted_media = insert.args[1][5].obj
+                self.assertIs(inserted_media["youtubeMetadataVerified"], success)
+                if success:
+                    self.assertEqual(inserted_media["youtubeMetadataVideoId"], youtube_id)
+                    response.json.assert_called_once_with()
+                else:
+                    self.assertNotIn("youtubeMetadataVideoId", inserted_media)
+                    response.json.assert_not_called()
+
+
 class ProofReportRouteTests(unittest.TestCase):
     VERIFIED_LIMIT = (
         "Timeline verification covers representative saved scenes, not every frame of either edit."
@@ -212,7 +422,8 @@ class ProofReportRouteTests(unittest.TestCase):
         recorded_at = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
         self.proof = {
             "id": "one-video-proof", "title": "Alignment regression fixture",
-            "youtube_id": "vLqagjJAvU8", "state": "ready", "message": "Ready to search.",
+            "source_sha256": "a" * 64, "youtube_id": "vLqagjJAvU8",
+            "state": "ready", "message": "Ready to search.",
             "asset_id": "uploaded-file", "provider_duration": 100.0,
             "searches_used": 1, "search_limit": 50, "updated_at": recorded_at,
             "media": {
@@ -220,7 +431,10 @@ class ProofReportRouteTests(unittest.TestCase):
                 "size": 123456, "hasAudio": True,
                 # These passed checks must never imply cross-edit verification.
                 "youtubeMetadataVerified": True,
-                "playbackObservation": {"status": "played"},
+                "youtubeMetadataVideoId": "vLqagjJAvU8",
+                "playbackObservation": {
+                    "status": "played", "youtubeVideoId": "vLqagjJAvU8",
+                },
             },
         }
         saved_search = {
@@ -273,7 +487,10 @@ class ProofReportRouteTests(unittest.TestCase):
     def test_verified_report_limits_claim_to_sampled_moments(self):
         for sample_count in (4, 2, None):
             with self.subTest(sample_count=sample_count):
-                observation = {"status": "verified"}
+                observation = {
+                    "status": "verified", "sourceSha256": "a" * 64,
+                    "youtubeVideoId": "vLqagjJAvU8",
+                }
                 if sample_count is not None:
                     observation["sampleCount"] = sample_count
                 self.proof["media"]["alignmentObservation"] = observation
@@ -291,7 +508,10 @@ class ProofReportRouteTests(unittest.TestCase):
     def test_mismatched_report_warns_about_retained_timestamps(self):
         for summary in ("The YouTube edit omits the opening scene.", None):
             with self.subTest(summary=summary):
-                observation = {"status": "mismatch"}
+                observation = {
+                    "status": "mismatch", "sourceSha256": "a" * 64,
+                    "youtubeVideoId": "vLqagjJAvU8",
+                }
                 if summary is not None:
                     observation["summary"] = summary
                 self.proof["media"]["alignmentObservation"] = observation

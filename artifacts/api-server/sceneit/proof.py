@@ -104,7 +104,21 @@ def public_proof():
     duration = float(media["duration"])
     provider_duration = row["provider_duration"]
     duration_agrees = provider_duration is not None and abs(provider_duration - duration) <= 1
-    embed_status = media.get("playbackObservation", {}).get("status")
+    youtube_id = row.get("youtube_id")
+    has_youtube_id = isinstance(youtube_id, str) and bool(youtube_id.strip())
+    metadata_verified = (
+        has_youtube_id
+        and media.get("youtubeMetadataVideoId") == youtube_id
+        and media.get("youtubeMetadataVerified") is True
+    )
+    playback_observation = media.get("playbackObservation")
+    if not isinstance(playback_observation, dict):
+        playback_observation = {}
+    embed_status = (
+        playback_observation.get("status")
+        if has_youtube_id and playback_observation.get("youtubeVideoId") == youtube_id
+        else None
+    )
     embed_blocked = embed_status == "blocked"
     embed_played = embed_status == "played"
     timeline_status, alignment_status, alignment_detail = alignment_evidence(
@@ -114,8 +128,12 @@ def public_proof():
     checks = [
         {"id": "source", "label": "Original file validated", "status": "passed",
          "detail": f"H.264 video and AAC audio; {media['width']} × {media['height']}. Source fingerprint recorded."},
-        {"id": "youtube", "label": "YouTube link resolves", "status": "passed" if media.get("youtubeMetadataVerified") else "unverified",
-         "detail": "YouTube oEmbed metadata matches the supplied link. Playback restrictions may still apply."},
+        {"id": "youtube", "label": "YouTube link resolves", "status": "passed" if metadata_verified else "unverified",
+         "detail": (
+             "YouTube oEmbed metadata matches the supplied link. Playback restrictions may still apply."
+             if metadata_verified else
+             "YouTube link metadata has not been verified for the current video. Playback restrictions may still apply."
+         )},
         {"id": "embed", "label": "Automated embed check",
           "status": "passed" if embed_played else ("failed" if embed_blocked else "unverified"),
           "detail": (
@@ -156,8 +174,8 @@ def public_proof():
     })
     return {
         "id": row["id"], "title": row["title"],
-        "youtubeVideoId": row["youtube_id"],
-        "youtubeUrl": f"https://www.youtube.com/watch?v={row['youtube_id']}",
+        "youtubeVideoId": youtube_id,
+        "youtubeUrl": f"https://www.youtube.com/watch?v={youtube_id}",
         "durationSeconds": duration, "width": media["width"], "height": media["height"],
         "fileSizeBytes": media["size"], "hasAudio": media["hasAudio"],
         "state": state, "statusMessage": row["message"], "model": "Marengo 3.0",
