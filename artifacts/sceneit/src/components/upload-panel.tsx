@@ -17,9 +17,14 @@ interface UploadPanelProps {
   config?: ImportConfig;
   onSuccess: () => void;
   onError?: (err: any) => void;
+  cancellationSignal?: AbortSignal;
+  cancellationPending?: boolean;
+  onCancel?: () => void;
 }
 
-export function UploadPanel({ importId, config, onSuccess, onError }: UploadPanelProps) {
+export function UploadPanel({
+  importId, config, onSuccess, onError, cancellationSignal, cancellationPending, onCancel,
+}: UploadPanelProps) {
   const { toast } = useToast();
   const { csrfToken } = useAuth();
   
@@ -30,6 +35,24 @@ export function UploadPanel({ importId, config, onSuccess, onError }: UploadPane
   const [error, setError] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeUpload = useRef<AbortController | null>(null);
+  const stopped = !!cancellationSignal?.aborted;
+
+  useEffect(() => {
+    const stop = () => {
+      activeUpload.current?.abort();
+      setIsProcessing(false);
+      setError('');
+    };
+    cancellationSignal?.addEventListener('abort', stop);
+    if (cancellationSignal?.aborted) stop();
+    return () => {
+      cancellationSignal?.removeEventListener('abort', stop);
+      const active = activeUpload.current;
+      activeUpload.current = null;
+      active?.abort();
+    };
+  }, [cancellationSignal, importId]);
 
   const reserveUpload = useReserveImportUpload({
     request: { headers: { 'X-CSRF-Token': csrfToken || '' } }
@@ -41,7 +64,7 @@ export function UploadPanel({ importId, config, onSuccess, onError }: UploadPane
 
   const handleFileDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (isProcessing) return;
+    if (isProcessing || stopped) return;
     if (e.dataTransfer.files.length !== 1) {
       toast({ title: 'Choose one MP4', description: 'Batch uploads are not supported.', variant: 'destructive' });
       return;
@@ -58,6 +81,7 @@ export function UploadPanel({ importId, config, onSuccess, onError }: UploadPane
   };
 
   const validateAndSetFile = (f: File) => {
+    if (isProcessing || stopped) return;
     // Some browsers on Linux may provide an empty string for type
     if (f.type && f.type !== 'video/mp4') {
       toast({ title: 'Invalid format', description: 'Only MP4 files are supported.', variant: 'destructive' });
@@ -79,21 +103,15 @@ export function UploadPanel({ importId, config, onSuccess, onError }: UploadPane
   };
 
   const handleUpload = async () => {
-    if (!file) return;
+    if (!file || activeUpload.current || stopped || cancellationPending) return;
+    const controller = new AbortController();
+    activeUpload.current = controller;
     try {
       setIsProcessing(true);
       setError('');
-      if (transferred) {
-        await completeUpload.mutateAsync({ importId, data: {} });
-        setIsProcessing(false);
-        onSuccess();
-        return;
-      }
-      setUploadProgress(0);
-      
-      let reservation;
-      try {
-        reservation = await reserveUpload.mutateAsync({
+      if (!transferred) {
+        setUploadProgress(0);
+        const reservation = await reserveUpload.mutateAsync({
           importId,
           data: {
             fileName: file.name,
@@ -101,36 +119,31 @@ export function UploadPanel({ importId, config, onSuccess, onError }: UploadPane
             contentType: 'video/mp4'
           }
         });
-      } catch (resErr: any) {
-        setError(importError(resErr));
-        setIsProcessing(false);
-        if (onError) onError(resErr);
-        return;
-      }
-
-      try {
+        // Reservation writes may finish after Cancel. Never start their transfer.
+        if (controller.signal.aborted) return;
         await uploadFileXHR(
           reservation.uploadURL, 
           reservation.method, 
           reservation.headers, 
           file, 
-          (percent) => setUploadProgress(percent)
+          (percent) => setUploadProgress(percent),
+          controller.signal,
         );
-      } catch (uplErr: any) {
-        setError(importError(uplErr));
-        setIsProcessing(false);
-        if (onError) onError(uplErr);
-        return;
+        if (controller.signal.aborted) return;
+        setTransferred(true);
       }
-
-      setTransferred(true);
+      if (controller.signal.aborted) return;
       await completeUpload.mutateAsync({ importId, data: {} });
-      setIsProcessing(false);
-      onSuccess();
+      if (!controller.signal.aborted) onSuccess();
     } catch (err: any) {
+      if (controller.signal.aborted) return;
       setError(importError(err));
-      setIsProcessing(false);
       if (onError) onError(err);
+    } finally {
+      if (activeUpload.current === controller) {
+        activeUpload.current = null;
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -141,13 +154,14 @@ export function UploadPanel({ importId, config, onSuccess, onError }: UploadPane
         className={`border-2 border-dashed ${file ? 'border-primary bg-primary/5' : 'border-border'} rounded-sm p-8 md:p-12 text-center transition-colors flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 hover:bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleFileDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => { if (!isProcessing && !stopped) fileInputRef.current?.click(); }}
         role="button"
-        tabIndex={0}
+        tabIndex={isProcessing || stopped ? -1 : 0}
+        aria-disabled={isProcessing || stopped}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            fileInputRef.current?.click();
+            if (!isProcessing && !stopped) fileInputRef.current?.click();
           }
         }}
         aria-label="Upload MP4 file"
@@ -158,7 +172,7 @@ export function UploadPanel({ importId, config, onSuccess, onError }: UploadPane
           className="hidden" 
           accept="video/mp4,.mp4" 
           onChange={handleFileSelect}
-          disabled={isProcessing}
+          disabled={isProcessing || stopped}
         />
         {file ? (
           <>
@@ -180,7 +194,7 @@ export function UploadPanel({ importId, config, onSuccess, onError }: UploadPane
       </div>
 
       {isProcessing && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" role="status">
           <div className="flex justify-between text-xs font-mono">
             <span>{uploadProgress === 100 ? 'TRANSFER SENT · AWAITING SERVER VALIDATION' : 'UPLOADING FILE…'}</span>
             <span>{uploadProgress}%</span>
@@ -191,15 +205,18 @@ export function UploadPanel({ importId, config, onSuccess, onError }: UploadPane
 
       <Button 
         onClick={handleUpload} 
-        disabled={!file || isProcessing}
+        disabled={!file || isProcessing || stopped || cancellationPending}
         className="w-full h-12 font-bold tracking-wider"
       >
-        {isProcessing ? (
+        {stopped ? 'UPLOAD STOPPED' : isProcessing ? (
           <><Loader2 className="size-5 animate-spin mr-2" /> PROCESSING UPLOAD...</>
         ) : (
           <>{transferred ? 'RETRY COMPLETION' : error ? 'RETRY UPLOAD' : 'UPLOAD FILE'}</>
         )}
       </Button>
+      {onCancel && <Button type="button" variant="outline" onClick={onCancel} disabled={cancellationPending}>
+        {cancellationPending ? 'Requesting cancellation…' : stopped ? 'Retry cancellation' : 'Cancel upload'}
+      </Button>}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@workspace/replit-auth-web';
@@ -8,6 +8,7 @@ import {
 } from '@workspace/api-client-react';
 import { AuthHeader } from '@/components/auth-header';
 import { UploadPanel } from '@/components/upload-panel';
+import { CancelImportDialog } from '@/components/cancel-import-dialog';
 import { PrivateSourcePlayer } from '@/components/private-source-player';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +42,11 @@ function Analysis({ id, token }: { id: string; token: string }) {
   const [selection, setSelection] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelAttempted, setCancelAttempted] = useState(false);
+  const [uploadCancellation] = useState(() => new AbortController());
+  const cancellationInFlight = useRef(false);
   const { data: config } = useGetImportConfig();
   const itemQuery = useGetImport(id, { query: {
     queryKey: ['/api/imports', id],
@@ -77,11 +83,25 @@ function Analysis({ id, token }: { id: string; token: string }) {
     finally { setBusy(false); }
   }
   async function cancel() {
-    if (!window.confirm('Cancel this import and request deletion of its private media? Cumulative allowances will not reset.')) return;
-    setBusy(true); setError('');
-    try { await cancelImport(id, {}, { headers }); await refresh(); }
-    catch (failure) { setError(importError(failure)); }
-    finally { setBusy(false); }
+    if (cancellationInFlight.current) return;
+    cancellationInFlight.current = true;
+    setCancelling(true); setBusy(true); setCancelAttempted(true); setError('');
+    uploadCancellation.abort();
+    try {
+      const cancelled = await cancelImport(id, {}, { headers });
+      // Discard an older poll before committing the acknowledged cancellation.
+      await cache.cancelQueries({ queryKey: ['/api/imports', id], exact: true });
+      cache.setQueryData(['/api/imports', id], cancelled);
+      setCancelOpen(false);
+      await refresh();
+    } catch (failure) {
+      setCancelOpen(false);
+      setError(`Cancellation wasn’t confirmed. ${importError(failure)} Retry cancellation to finish cleanup.`);
+    } finally {
+      cancellationInFlight.current = false;
+      setCancelling(false);
+      setBusy(false);
+    }
   }
   async function playback(authorized: boolean) {
     setBusy(true); setError('');
@@ -109,15 +129,26 @@ function Analysis({ id, token }: { id: string; token: string }) {
           {item.durationSeconds != null && ` · ${formatTime(item.durationSeconds)}`}
         </p>
       </div>
-      {canCancel && <Button variant="outline" onClick={cancel} disabled={busy}>Cancel &amp; delete import</Button>}
+      {canCancel && <Button variant="outline" onClick={() => setCancelOpen(true)} disabled={busy || cancelling}>
+        {cancelling ? 'Requesting cancellation…' : cancelAttempted ? 'Retry cancellation' : ready ? 'Delete import' : waitingForFile ? 'Cancel upload' : 'Cancel import'}
+      </Button>}
     </header>
+    <CancelImportDialog open={cancelOpen} onOpenChange={setCancelOpen} onConfirm={cancel}
+      pending={cancelling} upload={waitingForFile} ready={ready} />
     {error && <p role="alert" className="border border-destructive p-4 text-destructive">{error}</p>}
+    {cancelAttempted && waitingForFile && <p role="status" className="border p-4">
+      The file transfer is stopped in this browser.
+      {cancelling ? ' Requesting cancellation and private media cleanup…' : 'Retry cancellation if it has not been confirmed.'}
+    </p>}
     <section aria-live="polite" className="border p-4 space-y-2">
       <h2 className="font-bold capitalize">{item.state.replaceAll('_', ' ')}</h2>
       <p>{item.statusMessage}</p>
       {item.progressPercent != null && !waitingForFile && <p>{Math.round(item.progressPercent)}%
         {ready ? ' ready' : ' of the current transfer'}</p>}
-      {!ready && !terminal && !waitingForFile && <p className="text-sm text-muted-foreground">
+      {item.state === 'cancel_requested' && <p className="text-sm text-muted-foreground">
+        Cancellation was received. Private media cleanup runs in the background; you can leave this page.
+      </p>}
+      {!ready && !terminal && !waitingForFile && item.state !== 'cancel_requested' && <p className="text-sm text-muted-foreground">
         Processing continues after this page closes. You can return to this analysis.
       </p>}
       {item.state === 'needs_review' && <p className="text-sm">
@@ -131,7 +162,9 @@ function Analysis({ id, token }: { id: string; token: string }) {
       <CardContent className="space-y-4">
         <p>The source link, if supplied, stays attached. Re-select your file after a reload or interrupted upload.
           Uploading is not complete until the server validates its contents.</p>
-        <UploadPanel importId={id} config={config} onSuccess={refresh} />
+        <UploadPanel importId={id} config={config} onSuccess={refresh}
+          cancellationSignal={uploadCancellation.signal} cancellationPending={cancelling}
+          onCancel={() => setCancelOpen(true)} />
       </CardContent>
     </Card>}
     <div className="grid gap-6 lg:grid-cols-2">

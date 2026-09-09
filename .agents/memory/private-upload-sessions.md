@@ -16,3 +16,10 @@ must reject late completion and retain an encrypted reference for revocation.
 session revocation when changing uploads. Test size enforcement and replay
 immutability against the real storage service; mocked SDK calls alone cannot
 establish those provider guarantees. Never log or save upload URLs as evidence.
+
+Treat browser abort, cancellation acknowledgement, and completed cleanup as
+separate outcomes. **Why:** a cancellation was successfully queued while its
+dedicated worker was configured but not running; acknowledgement alone did not
+mean the reserved storage session had been revoked. **How to apply:** keep the
+transfer stoppable immediately, retain server cleanup references, and distinguish
+pending cleanup from completed cancellation in user-facing messages.
