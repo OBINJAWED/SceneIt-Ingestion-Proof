@@ -33,6 +33,28 @@ class ProofError(Exception):
         self.code, self.message, self.status = code, message, status
 
 
+def alignment_evidence(media):
+    """Present only an operator-recorded cross-edit playback observation."""
+    observation = media.get("alignmentObservation", {})
+    status = observation.get("status")
+    if status == "verified":
+        sample_count = observation.get("sampleCount")
+        count = f"{sample_count} representative saved scenes" if sample_count else "Representative saved scenes"
+        return "verified", "passed", (
+            f"{count} matched the YouTube edit at their retained timestamps during paired playback. "
+            "No stable offset or edit divergence was observed; verification covers the sampled moments."
+        )
+    if status == "mismatch":
+        return "mismatch", "failed", (
+            observation.get("summary")
+            or "Paired playback showed that the indexed source and YouTube edit do not share one timeline."
+        )
+    return "unverified", "unverified", (
+        "Compare paired source and YouTube playback at saved timestamps. "
+        "A matching link, still, or duration alone does not verify the edit."
+    )
+
+
 def present_search(row):
     return {
         "id": str(row["id"]),
@@ -69,15 +91,25 @@ def public_proof():
     duration = float(media["duration"])
     provider_duration = row["provider_duration"]
     duration_agrees = provider_duration is not None and abs(provider_duration - duration) <= 1
-    embed_blocked = media.get("playbackObservation", {}).get("status") == "blocked"
+    embed_status = media.get("playbackObservation", {}).get("status")
+    embed_blocked = embed_status == "blocked"
+    embed_played = embed_status == "played"
+    timeline_status, alignment_status, alignment_detail = alignment_evidence(media)
     failed = state in ("failed", "needs_review")
     checks = [
         {"id": "source", "label": "Original file validated", "status": "passed",
          "detail": f"H.264 video and AAC audio; {media['width']} × {media['height']}. Source fingerprint recorded."},
         {"id": "youtube", "label": "YouTube link resolves", "status": "passed" if media.get("youtubeMetadataVerified") else "unverified",
          "detail": "YouTube oEmbed metadata matches the supplied link. Playback restrictions may still apply."},
-        {"id": "embed", "label": "Automated embed check", "status": "failed" if embed_blocked else "unverified",
-         "detail": "YouTube refused embedded playback in the automated preview (error 150). Timestamp links remain available." if embed_blocked else "A successful metadata request does not verify embedded playback."},
+        {"id": "embed", "label": "Automated embed check",
+          "status": "passed" if embed_played else ("failed" if embed_blocked else "unverified"),
+          "detail": (
+              "YouTube footage rendered and the player clock advanced during the latest automated preview."
+              if embed_played else
+              ("YouTube refused embedded playback in the automated preview (error 150). Timestamp links remain available."
+               if embed_blocked else
+               "A successful metadata request does not verify embedded playback.")
+          )},
         {"id": "asset", "label": "Media uploaded to Twelve Labs",
          "status": "passed" if row["asset_id"] else ("failed" if failed else "pending"),
          "detail": "Provider asset identifier saved in Postgres." if row["asset_id"] else "The authorized file is uploaded directly, not downloaded from YouTube."},
@@ -90,8 +122,8 @@ def public_proof():
         {"id": "search", "label": "Live semantic retrieval",
          "status": "passed" if successful else "pending",
          "detail": f"{successful} real searches saved; no mock matches or invented confidence scores."},
-        {"id": "alignment", "label": "YouTube timeline alignment", "status": "unverified",
-         "detail": "Compare the source still with YouTube at each result. A matching link or duration alone does not verify the edit."},
+        {"id": "alignment", "label": "YouTube timeline alignment", "status": alignment_status,
+          "detail": alignment_detail},
     ]
     source_playback = media.get("sourcePlayback", {})
     source_playback_available = (
@@ -114,7 +146,7 @@ def public_proof():
         "durationSeconds": duration, "width": media["width"], "height": media["height"],
         "fileSizeBytes": media["size"], "hasAudio": media["hasAudio"],
         "state": state, "statusMessage": row["message"], "model": "Marengo 3.0",
-        "timelineStatus": "unverified", "checks": checks,
+        "timelineStatus": timeline_status, "checks": checks,
         "sourcePlaybackAvailable": source_playback_available,
         "sourcePlaybackUrl": "/api/proof/source" if source_playback_available else None,
         "searchesUsed": row["searches_used"], "searchLimit": row["search_limit"],
@@ -231,12 +263,17 @@ def search_scenes(payload):
 
 def report():
     proof = public_proof()
+    alignment_limit = (
+        "Timeline verification covers four representative saved scenes, not every frame of either edit."
+        if proof["timelineStatus"] == "verified"
+        else "YouTube edit/timeline alignment is not independently verified."
+    )
     return {
         "proof": proof, "searches": list_searches(),
         "limitations": [
             "This proof covers only the supplied video, not a general video library.",
-            "YouTube edit/timeline alignment is not independently verified.",
-            "First-party playback shows the indexed original, not the YouTube edit, and does not verify cross-edit alignment.",
+            alignment_limit,
+            "First-party playback shows the indexed original; cross-edit claims require paired playback with YouTube.",
             "A source still is extracted at the midpoint of each returned segment.",
             "Confidence labels, when present, are provider categories, not probabilities.",
             "YouTube looping is approximate and subject to availability and browser policies.",

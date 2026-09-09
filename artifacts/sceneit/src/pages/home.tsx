@@ -348,11 +348,20 @@ export default function Home() {
                     </p>
                     <div className="p-3 bg-muted/50 border rounded-sm">
                       <p className="text-xs flex items-center gap-2 mb-1">
-                        <span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" />
-                        Timeline is UNVERIFIED.
+                        <span className={cn(
+                          "w-2 h-2 rounded-full inline-block",
+                          proof.timelineStatus === 'verified' ? "bg-primary" :
+                          proof.timelineStatus === 'mismatch' ? "bg-destructive" :
+                          "bg-yellow-500"
+                        )} />
+                        Timeline is {proof.timelineStatus.toUpperCase()}.
                       </p>
                       <p className="text-[10px] opacity-70">
-                        Compare this moment with YouTube before treating the timelines as aligned. A matching title or duration alone is not enough.
+                        {proof.timelineStatus === 'verified'
+                          ? "Paired playback matched four representative saved scenes at their retained YouTube timestamps. This status covers those samples, not every frame."
+                          : proof.timelineStatus === 'mismatch'
+                            ? "Paired playback found a difference between the indexed source and the YouTube edit."
+                            : "Compare this moment with YouTube before treating the timelines as aligned. A matching title or duration alone is not enough."}
                       </p>
                     </div>
                   </div>

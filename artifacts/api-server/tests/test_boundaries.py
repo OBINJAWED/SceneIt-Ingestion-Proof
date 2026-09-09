@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 from pydantic import ValidationError
 
-from sceneit.proof import ProofError, SceneQuery, normalize_matches
+from sceneit.proof import ProofError, SceneQuery, alignment_evidence, normalize_matches
 from sceneit.worker import publish_source, run_step
 from sceneit.storage import parse_object_path, safe_content_range
 from sceneit.server import app
@@ -68,6 +68,18 @@ class SearchBoundaryTests(unittest.TestCase):
 
     def test_empty_provider_results_remain_empty(self):
         self.assertEqual(normalize_matches({"data": []}, self.proof, "search"), ([], False))
+
+    def test_alignment_status_requires_recorded_playback_observation(self):
+        self.assertEqual(alignment_evidence({})[:2], ("unverified", "unverified"))
+        self.assertEqual(
+            alignment_evidence({
+                "alignmentObservation": {
+                    "status": "verified",
+                    "sampleCount": 4,
+                }
+            })[:2],
+            ("verified", "passed"),
+        )
 
     def test_ambiguous_upload_or_index_is_not_submitted_again(self):
         for state, asset_id in (("uploading", None), ("indexing", "uploaded-file")):
