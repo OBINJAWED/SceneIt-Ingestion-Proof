@@ -357,6 +357,83 @@ export function useGetProofReport<TData = Awaited<ReturnType<typeof getProofRepo
 
 
 
+export const getStreamProofSourceUrl = () => {
+
+
+
+
+  return `/api/proof/source`
+}
+
+/**
+ * @summary Stream the rights-approved original with HTTP byte-range support
+ */
+export const streamProofSource = async ( options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getStreamProofSourceUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getStreamProofSourceQueryKey = () => {
+    return [
+    `/api/proof/source`
+    ] as const;
+    }
+
+
+export const getStreamProofSourceQueryOptions = <TData = Awaited<ReturnType<typeof streamProofSource>>, TError = ErrorType<FailureResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamProofSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getStreamProofSourceQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof streamProofSource>>> = ({ signal }) => streamProofSource({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof streamProofSource>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type StreamProofSourceQueryResult = NonNullable<Awaited<ReturnType<typeof streamProofSource>>>
+export type StreamProofSourceQueryError = ErrorType<FailureResponse>
+
+
+/**
+ * @summary Stream the rights-approved original with HTTP byte-range support
+ */
+
+export function useStreamProofSource<TData = Awaited<ReturnType<typeof streamProofSource>>, TError = ErrorType<FailureResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamProofSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getStreamProofSourceQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getHealthCheckUrl = () => {
 
 

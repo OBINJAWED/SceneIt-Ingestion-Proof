@@ -23,6 +23,9 @@ export interface Proof {
   statusMessage: string;
   model: string;
   timelineStatus: ProofTimelineStatus;
+  sourcePlaybackAvailable: boolean;
+  /** @nullable */
+  sourcePlaybackUrl: string | null;
   checks: ProofCheck[];
   searchesUsed: number;
   searchLimit: number;

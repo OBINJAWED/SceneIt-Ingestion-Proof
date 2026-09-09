@@ -25,6 +25,8 @@ export const GetProofResponse = zod.object({
   "statusMessage": zod.string(),
   "model": zod.string(),
   "timelineStatus": zod.enum(['unverified', 'verified', 'mismatch']),
+  "sourcePlaybackAvailable": zod.boolean(),
+  "sourcePlaybackUrl": zod.string().nullable(),
   "checks": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -109,6 +111,8 @@ export const GetProofReportResponse = zod.object({
   "statusMessage": zod.string(),
   "model": zod.string(),
   "timelineStatus": zod.enum(['unverified', 'verified', 'mismatch']),
+  "sourcePlaybackAvailable": zod.boolean(),
+  "sourcePlaybackUrl": zod.string().nullable(),
   "checks": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -138,6 +142,12 @@ export const GetProofReportResponse = zod.object({
 })),
   "limitations": zod.array(zod.string())
 })
+
+
+/**
+ * @summary Stream the rights-approved original with HTTP byte-range support
+ */
+export const StreamProofSourceResponse = zod.unknown()
 
 
 /**

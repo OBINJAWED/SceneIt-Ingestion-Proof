@@ -3,6 +3,7 @@ import { cn, formatTime } from '@/lib/utils';
 import { Button } from './ui/button';
 import { Play, Pause, ExternalLink, RotateCcw } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { SourceVideoPlayer } from './source-video-player';
 
 declare global {
   interface Window {
@@ -17,6 +18,7 @@ interface YouTubePlayerProps {
   endSeconds?: number;
   className?: string;
   onReady?: () => void;
+  sourcePlaybackUrl?: string | null;
 }
 
 export function YouTubePlayer({
@@ -24,7 +26,8 @@ export function YouTubePlayer({
   startSeconds,
   endSeconds,
   className,
-  onReady
+  onReady,
+  sourcePlaybackUrl,
 }: YouTubePlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -37,10 +40,12 @@ export function YouTubePlayer({
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [localDuration, setLocalDuration] = useState(0);
+  const [useSource, setUseSource] = useState(false);
 
   // Initialize YT API
   useEffect(() => {
     let mounted = true;
+    if (useSource) return;
 
     if (!window.YT) {
       const tag = document.createElement('script');
@@ -96,6 +101,7 @@ export function YouTubePlayer({
             setIsPlaying(false);
             setIsReady(false);
             setIsError(true);
+            if (sourcePlaybackUrl) setUseSource(true);
           }
         }
       });
@@ -115,7 +121,7 @@ export function YouTubePlayer({
         playerRef.current = null;
       }
     };
-  }, [videoId]);
+  }, [videoId, useSource, sourcePlaybackUrl]);
 
   // When segment boundaries change, seek to start if ready, but don't auto-play unless already playing
   useEffect(() => {
@@ -142,13 +148,14 @@ export function YouTubePlayer({
   }, [isPlaying, loopEnabled, startSeconds, endSeconds]);
 
   useEffect(() => {
+    if (useSource) return;
     timerRef.current = requestAnimationFrame(checkLoop);
     return () => {
       if (timerRef.current !== null) {
         cancelAnimationFrame(timerRef.current);
       }
     };
-  }, [checkLoop]);
+  }, [checkLoop, useSource]);
 
   const handlePlayPause = () => {
     if (!playerRef.current) return;
@@ -163,6 +170,22 @@ export function YouTubePlayer({
     if (!playerRef.current) return;
     playerRef.current.seekTo(startSeconds || 0, true);
   };
+
+  if (useSource && sourcePlaybackUrl) {
+      return (
+        <SourceVideoPlayer
+          src={sourcePlaybackUrl}
+          youtubeUrl={`https://youtu.be/${videoId}${startSeconds ? `?t=${Math.floor(startSeconds)}` : ''}`}
+          startSeconds={startSeconds}
+          endSeconds={endSeconds}
+          className={className}
+          onUseYouTube={() => {
+            setIsError(false);
+            setUseSource(false);
+          }}
+        />
+      );
+  }
 
   if (isError) {
     return (
@@ -251,6 +274,16 @@ export function YouTubePlayer({
               YT_FALLBACK
             </a>
           </Button>
+          {sourcePlaybackUrl && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-none text-xs"
+              onClick={() => setUseSource(true)}
+            >
+              VIEW ORIGINAL SOURCE
+            </Button>
+          )}
         </div>
       </div>
     </div>

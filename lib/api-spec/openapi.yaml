@@ -76,6 +76,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProofReport"
+  /proof/source:
+    get:
+      operationId: streamProofSource
+      tags: [proof]
+      summary: Stream the rights-approved original with HTTP byte-range support
+      responses:
+        "200":
+          description: Complete original source
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        "206":
+          description: Requested byte range from the original source
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        "404":
+          $ref: "#/components/responses/Failure"
+        "416":
+          $ref: "#/components/responses/Failure"
   /healthz:
     get:
       operationId: healthCheck
@@ -114,7 +134,7 @@ components:
         detail: { type: string }
     Proof:
       type: object
-      required: [id, title, youtubeVideoId, youtubeUrl, durationSeconds, width, height, fileSizeBytes, hasAudio, state, statusMessage, model, timelineStatus, checks, searchesUsed, searchLimit, updatedAt]
+      required: [id, title, youtubeVideoId, youtubeUrl, durationSeconds, width, height, fileSizeBytes, hasAudio, state, statusMessage, model, timelineStatus, checks, sourcePlaybackAvailable, sourcePlaybackUrl, searchesUsed, searchLimit, updatedAt]
       properties:
         id: { type: string }
         title: { type: string }
@@ -129,6 +149,8 @@ components:
         statusMessage: { type: string }
         model: { type: string }
         timelineStatus: { type: string, enum: [unverified, verified, mismatch] }
+        sourcePlaybackAvailable: { type: boolean }
+        sourcePlaybackUrl: { type: ["string", "null"] }
         checks:
           type: array
           items:

@@ -93,6 +93,20 @@ def public_proof():
         {"id": "alignment", "label": "YouTube timeline alignment", "status": "unverified",
          "detail": "Compare the source still with YouTube at each result. A matching link or duration alone does not verify the edit."},
     ]
+    source_playback = media.get("sourcePlayback", {})
+    source_playback_available = (
+        source_playback.get("permissionConfirmed") is True
+        and source_playback.get("rightsPolicy") == "public-app-viewers"
+    )
+    checks.insert(3, {
+        "id": "source-playback", "label": "First-party source playback",
+        "status": "passed" if source_playback_available else "unverified",
+        "detail": (
+            "The owner permits streaming to anyone with app access; the original is served from controlled persistent storage."
+            if source_playback_available else
+            "Source playback remains disabled until streaming permission and persistent storage are configured."
+        ),
+    })
     return {
         "id": row["id"], "title": row["title"],
         "youtubeVideoId": row["youtube_id"],
@@ -101,6 +115,8 @@ def public_proof():
         "fileSizeBytes": media["size"], "hasAudio": media["hasAudio"],
         "state": state, "statusMessage": row["message"], "model": "Marengo 3.0",
         "timelineStatus": "unverified", "checks": checks,
+        "sourcePlaybackAvailable": source_playback_available,
+        "sourcePlaybackUrl": "/api/proof/source" if source_playback_available else None,
         "searchesUsed": row["searches_used"], "searchLimit": row["search_limit"],
         "updatedAt": row["updated_at"].isoformat(),
     }
@@ -220,6 +236,7 @@ def report():
         "limitations": [
             "This proof covers only the supplied video, not a general video library.",
             "YouTube edit/timeline alignment is not independently verified.",
+            "First-party playback shows the indexed original, not the YouTube edit, and does not verify cross-edit alignment.",
             "A source still is extracted at the midpoint of each returned segment.",
             "Confidence labels, when present, are provider categories, not probabilities.",
             "YouTube looping is approximate and subject to availability and browser policies.",

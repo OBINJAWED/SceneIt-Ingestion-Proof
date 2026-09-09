@@ -12,6 +12,7 @@ from psycopg.types.json import Jsonb
 
 from .db import PROOF_ID, connection, get_proof, update_proof, worker_lock
 from .provider import ProviderError, TwelveLabsClient
+from .storage import private_object_path, upload_source
 
 ROOT = Path(__file__).resolve().parents[3]
 logger = logging.getLogger("sceneit.worker")
@@ -203,6 +204,35 @@ def run(max_seconds):
         return 2
 
 
+def publish_source(permission_confirmed, rights_policy):
+    """Persist the already-indexed original for rights-approved first-party playback."""
+    if not permission_confirmed or rights_policy != "public-app-viewers":
+        raise RuntimeError(
+            "Explicit owner permission for public app viewers is required to publish source playback"
+        )
+    proof = get_proof()
+    if not proof:
+        raise RuntimeError("Initialize the proof first")
+    source = (ROOT / proof["source_path"]).resolve()
+    if not source.is_relative_to(ROOT / "attached_assets") or not source.is_file():
+        raise RuntimeError("The authorized source file is unavailable")
+    object_path = private_object_path(f"sceneit/{proof['source_sha256']}.mp4")
+    created = upload_source(source, object_path)
+    media = dict(proof["media"])
+    media["sourcePlayback"] = {
+        "objectPath": object_path,
+        "contentType": "video/mp4",
+        "rightsPolicy": rights_policy,
+        "permissionConfirmed": permission_confirmed,
+    }
+    with connection() as conn:
+        conn.execute(
+            "UPDATE sceneit_proofs SET media = %s, updated_at = now() WHERE id = %s",
+            (Jsonb(media), PROOF_ID),
+        )
+    log("source_playback_published", created=created, bytes=source.stat().st_size)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SceneIt one-video ingestion proof")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -211,8 +241,13 @@ if __name__ == "__main__":
     init.add_argument("--youtube-id", required=True)
     runner = commands.add_parser("run")
     runner.add_argument("--max-seconds", type=int, default=1200)
+    publisher = commands.add_parser("publish-source")
+    publisher.add_argument("--permission-confirmed", action="store_true", required=True)
+    publisher.add_argument("--rights-policy", choices=["public-app-viewers"], required=True)
     args = parser.parse_args()
     if args.command == "init":
         initialize(args.source, args.youtube_id)
-    else:
+    elif args.command == "run":
         raise SystemExit(run(max(30, min(args.max_seconds, 1800))))
+    else:
+        publish_source(args.permission_confirmed, args.rights_policy)

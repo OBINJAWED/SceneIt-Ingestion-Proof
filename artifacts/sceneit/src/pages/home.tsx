@@ -281,6 +281,7 @@ export default function Home() {
                 videoId={proof.youtubeVideoId}
                 startSeconds={selectedMatch?.startSeconds}
                 endSeconds={selectedMatch?.endSeconds}
+                sourcePlaybackUrl={proof.sourcePlaybackUrl}
                 className="w-full"
               />
             </CardContent>

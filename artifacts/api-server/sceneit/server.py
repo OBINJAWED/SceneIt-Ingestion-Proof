@@ -9,13 +9,15 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from flask import Flask, Response, jsonify, request, send_file
+import httpx
+from flask import Flask, Response, jsonify, request, send_file, stream_with_context
 from pydantic import ValidationError
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .db import PROOF_ID, connection
 from .proof import ProofError, list_searches, public_proof, report, search_scenes
+from .storage import safe_content_range, signed_url
 
 ROOT = Path(__file__).resolve().parents[3]
 logger = logging.getLogger("sceneit")
@@ -81,6 +83,69 @@ def semantic_search():
 @app.get("/api/proof/report")
 def evidence():
     return jsonify(report())
+
+
+@app.get("/api/proof/source")
+def source_video():
+    """Range-capable proxy for the one rights-approved proof source."""
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT media FROM sceneit_proofs WHERE id = %s", (PROOF_ID,)
+        ).fetchone()
+    playback = row and row["media"].get("sourcePlayback")
+    if (
+        not playback
+        or playback.get("permissionConfirmed") is not True
+        or playback.get("rightsPolicy") != "public-app-viewers"
+    ):
+        raise ProofError("source_playback_unavailable", "Source playback is not available.", 404)
+    requested_range = request.headers.get("Range")
+    byte_range = safe_content_range(requested_range)
+    if requested_range and not byte_range:
+        raise ProofError("invalid_range", "Only one valid byte range may be requested.", 416)
+    headers = {"Range": byte_range} if byte_range else {}
+    client = httpx.Client(timeout=60)
+    try:
+        upstream = client.send(
+            httpx.Request("GET", signed_url(playback["objectPath"], "GET"), headers=headers),
+            stream=True,
+        )
+    except Exception:
+        client.close()
+        raise
+    if upstream.status_code == 416:
+        content_range = upstream.headers.get("Content-Range")
+        upstream.close()
+        client.close()
+        response = jsonify(error="The requested byte range is not satisfiable.", code="range_not_satisfiable")
+        response.status_code = 416
+        if content_range:
+            response.headers["Content-Range"] = content_range
+        response.headers["Accept-Ranges"] = "bytes"
+        return response
+    expected_status = 206 if byte_range else 200
+    if upstream.status_code != expected_status:
+        upstream.close()
+        client.close()
+        raise ProofError("source_playback_unavailable", "Source playback is temporarily unavailable.", 503)
+    response_headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Type": upstream.headers.get("Content-Type", playback["contentType"]),
+        "Cache-Control": "public, max-age=300",
+    }
+    for name in ("Content-Length", "Content-Range", "ETag"):
+        if name in upstream.headers:
+            response_headers[name] = upstream.headers[name]
+
+    @stream_with_context
+    def body():
+        try:
+            yield from upstream.iter_bytes()
+        finally:
+            upstream.close()
+            client.close()
+
+    return Response(body(), status=upstream.status_code, headers=response_headers)
 
 
 @app.get("/api/proof/searches/<uuid:search_id>/frames/<int:rank>")
