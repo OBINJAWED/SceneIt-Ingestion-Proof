@@ -1,8 +1,9 @@
-"""A resumable operator-only ingestion command, never invoked by public routes."""
+"""Operator-only demo ingestion and metadata commands, never invoked by public routes."""
 import argparse
 import hashlib
 import json
 import logging
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -24,7 +25,6 @@ def log(event, **fields):
 
 
 def initialize(source_name, youtube_id):
-    import re
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}", youtube_id):
         raise ValueError("Invalid YouTube ID")
     source = (ROOT / source_name).resolve()
@@ -73,6 +73,56 @@ def initialize(source_name, youtube_id):
                  f"SceneIt_proof_{youtube_id}_{digest[:8]}"),
             )
     log("proof_initialized", duration_seconds=media["duration"], bytes=media["size"])
+
+
+def refresh_youtube_metadata():
+    """Recheck only the preserved demo's link, not playback or timeline alignment."""
+    proof = get_proof()
+    if not proof:
+        raise RuntimeError("Initialize the proof first")
+    youtube_id = proof.get("youtube_id")
+    if not isinstance(youtube_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{11}", youtube_id):
+        raise ValueError("The proof must have a valid YouTube ID before refreshing metadata")
+
+    verified, reason = False, "http_status"
+    try:
+        response = httpx.get(
+            "https://www.youtube.com/oembed",
+            params={"url": f"https://www.youtube.com/watch?v={youtube_id}", "format": "json"},
+            timeout=20,
+        )
+        if response.is_success:
+            metadata = response.json()
+            verified = (
+                isinstance(metadata, dict)
+                and isinstance(metadata.get("title"), str)
+                and bool(metadata["title"].strip())
+            )
+            reason = "resolved" if verified else "invalid_metadata"
+    except httpx.HTTPError:
+        reason = "request_failed"
+    except ValueError:
+        reason = "invalid_metadata"
+
+    # Merge into the current row, not the pre-request snapshot: preserve other
+    # observations and atomically reject a link replacement while oEmbed ran.
+    with connection() as conn:
+        updated = conn.execute(
+            "UPDATE sceneit_proofs SET media = media || %s, updated_at = now() "
+            "WHERE id = %s AND youtube_id = %s RETURNING id",
+            (Jsonb({
+                "youtubeMetadataVerified": verified,
+                "youtubeMetadataVideoId": youtube_id,
+            }), PROOF_ID, youtube_id),
+        ).fetchone()
+    if not updated:
+        log("youtube_metadata_refresh_skipped", reason="proof_link_changed_or_removed")
+        return 2
+    log(
+        "youtube_metadata_refreshed", youtube_id=youtube_id, verified=verified, reason=reason,
+        detail="Metadata only; playback and timeline alignment were not checked.",
+    )
+    return 0 if verified else 1
 
 
 def identifier(raw):
@@ -234,21 +284,37 @@ def publish_source(permission_confirmed, rights_policy):
     log("source_playback_published", created=created, bytes=source.stat().st_size)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SceneIt one-video ingestion proof")
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="SceneIt operator-only preserved demo commands")
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init")
     init.add_argument("--source", required=True)
     init.add_argument("--youtube-id", required=True)
     runner = commands.add_parser("run")
     runner.add_argument("--max-seconds", type=int, default=1200)
+    commands.add_parser(
+        "refresh-youtube-metadata",
+        help="Fresh oEmbed check of the demo's current link; no ingestion or playback check",
+        description=(
+            "Refresh only the preserved demo's YouTube metadata. Does not verify playback "
+            "or timeline alignment, upload media, or reindex. Exit 0: metadata resolved; "
+            "1: failed check saved as unverified; 2: link changed or proof removed, nothing saved."
+        ),
+    )
     publisher = commands.add_parser("publish-source")
     publisher.add_argument("--permission-confirmed", action="store_true", required=True)
     publisher.add_argument("--rights-policy", choices=["public-app-viewers"], required=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.command == "init":
         initialize(args.source, args.youtube_id)
     elif args.command == "run":
-        raise SystemExit(run(max(30, min(args.max_seconds, 1800))))
+        return run(max(30, min(args.max_seconds, 1800)))
+    elif args.command == "refresh-youtube-metadata":
+        return refresh_youtube_metadata()
     else:
         publish_source(args.permission_confirmed, args.rights_policy)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

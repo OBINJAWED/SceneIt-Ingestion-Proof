@@ -15,6 +15,7 @@ permissions. This is not a full video library or cross-video search product.
 - Python dependencies: `uv sync --locked` (managed Python environment)
 - Required secrets: `TWELVE_LABS_API_KEY`, `DATABASE_URL`; never print values
 - In `artifacts/api-server`: `python3 -m sceneit.worker run --max-seconds 1200` resumes ingestion without submitting another upload when identifiers exist.
+- In `artifacts/api-server`: `python3 -m sceneit.worker refresh-youtube-metadata` performs a fresh oEmbed check of the preserved demo's current YouTube ID. Exit 0 means metadata resolved; 1 means the failed check was saved as unverified; 2 means the link changed or the proof disappeared and nothing was saved. Failures clear a previous metadata pass. This never uploads/reindexes media or checks playback/alignment; it preserves unrelated evidence. Legacy metadata remains unverified until a fresh check binds it to the checked ID.
 - The worker is operator-only. It is never invoked from web requests.
 - New private imports use a separate always-on worker: `pnpm --filter @workspace/api-server run worker`.
 - Apply additive **development-only** migrations explicitly with `python3 scripts/migrate-development.py --development`.
