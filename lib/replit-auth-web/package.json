@@ -1,0 +1,15 @@
+{
+  "name": "@workspace/replit-auth-web",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "dependencies": {
+    "@tanstack/react-query": "catalog:",
+    "@workspace/api-client-react": "workspace:*",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:"
+  }
+}

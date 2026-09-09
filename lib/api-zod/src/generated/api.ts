@@ -8,6 +8,396 @@
 import * as zod from 'zod';
 
 
+export const GetCurrentAuthUserResponse = zod.object({
+  "csrfToken": zod.string().nullable(),
+  "user": zod.object({
+  "id": zod.string(),
+  "firstName": zod.string().nullable()
+}).nullable()
+})
+
+
+export const LoginQueryParams = zod.object({
+  "returnTo": zod.coerce.string().optional()
+})
+
+export const LoginResponse = zod.void()
+
+
+export const AuthCallbackResponse = zod.void()
+
+
+export const LogoutResponse = zod.object({
+  "success": zod.boolean()
+})
+
+
+export const GetImportConfigResponse = zod.object({
+  "maxBytes": zod.number().int(),
+  "minDurationSeconds": zod.number(),
+  "maxDurationSeconds": zod.number(),
+  "retentionDays": zod.number().int(),
+  "ownerImportLimit": zod.number().int(),
+  "appImportLimit": zod.number().int(),
+  "ownerSearchLimit": zod.number().int(),
+  "appSearchLimit": zod.number().int(),
+  "workerAvailable": zod.boolean()
+})
+
+
+export const GetCurrentImportResponse = zod.union([zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "entryMethod": zod.enum(['upload', 'link']),
+  "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
+  "sourceUrl": zod.string().nullable(),
+  "externalId": zod.string().nullable(),
+  "state": zod.enum(['file_required', 'awaiting_upload', 'queued', 'resolving', 'validating', 'uploading', 'processing', 'indexing', 'ready', 'failed', 'needs_review', 'cancel_requested', 'cancelled', 'expired']),
+  "statusMessage": zod.string(),
+  "progressPercent": zod.number().nullable(),
+  "errorCode": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "fileSizeBytes": zod.number().int().nullable(),
+  "hasAudio": zod.boolean().nullable(),
+  "sourcePlaybackAvailable": zod.boolean(),
+  "sourcePlaybackUrl": zod.string().nullable(),
+  "playbackAuthorized": zod.boolean(),
+  "timelineStatus": zod.enum(['not_applicable', 'unverified']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "expiresAt": zod.string(),
+  "searchesUsed": zod.number().int(),
+  "searchLimit": zod.number().int(),
+  "importsUsed": zod.number().int(),
+  "importLimit": zod.number().int()
+}),zod.null()])
+
+
+export const createImportBodySourceUrlMax = 2048;
+
+
+
+export const CreateImportBody = zod.object({
+  "entryMethod": zod.enum(['upload', 'link']),
+  "sourceUrl": zod.string().max(createImportBodySourceUrlMax).optional(),
+  "analysisAuthorized": zod.literal(true),
+  "playbackAuthorized": zod.boolean(),
+  "idempotencyKey": zod.string().uuid()
+})
+
+export const CreateImportResponse = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "entryMethod": zod.enum(['upload', 'link']),
+  "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
+  "sourceUrl": zod.string().nullable(),
+  "externalId": zod.string().nullable(),
+  "state": zod.enum(['file_required', 'awaiting_upload', 'queued', 'resolving', 'validating', 'uploading', 'processing', 'indexing', 'ready', 'failed', 'needs_review', 'cancel_requested', 'cancelled', 'expired']),
+  "statusMessage": zod.string(),
+  "progressPercent": zod.number().nullable(),
+  "errorCode": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "fileSizeBytes": zod.number().int().nullable(),
+  "hasAudio": zod.boolean().nullable(),
+  "sourcePlaybackAvailable": zod.boolean(),
+  "sourcePlaybackUrl": zod.string().nullable(),
+  "playbackAuthorized": zod.boolean(),
+  "timelineStatus": zod.enum(['not_applicable', 'unverified']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "expiresAt": zod.string(),
+  "searchesUsed": zod.number().int(),
+  "searchLimit": zod.number().int(),
+  "importsUsed": zod.number().int(),
+  "importLimit": zod.number().int()
+})
+
+
+export const GetImportParams = zod.object({
+  "importId": zod.coerce.string().uuid()
+})
+
+export const GetImportResponse = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "entryMethod": zod.enum(['upload', 'link']),
+  "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
+  "sourceUrl": zod.string().nullable(),
+  "externalId": zod.string().nullable(),
+  "state": zod.enum(['file_required', 'awaiting_upload', 'queued', 'resolving', 'validating', 'uploading', 'processing', 'indexing', 'ready', 'failed', 'needs_review', 'cancel_requested', 'cancelled', 'expired']),
+  "statusMessage": zod.string(),
+  "progressPercent": zod.number().nullable(),
+  "errorCode": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "fileSizeBytes": zod.number().int().nullable(),
+  "hasAudio": zod.boolean().nullable(),
+  "sourcePlaybackAvailable": zod.boolean(),
+  "sourcePlaybackUrl": zod.string().nullable(),
+  "playbackAuthorized": zod.boolean(),
+  "timelineStatus": zod.enum(['not_applicable', 'unverified']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "expiresAt": zod.string(),
+  "searchesUsed": zod.number().int(),
+  "searchLimit": zod.number().int(),
+  "importsUsed": zod.number().int(),
+  "importLimit": zod.number().int()
+})
+
+
+export const ReserveImportUploadParams = zod.object({
+  "importId": zod.coerce.string().uuid()
+})
+
+export const reserveImportUploadBodyFileNameMax = 255;
+
+export const reserveImportUploadBodySizeBytesMax = 200000000;
+
+
+
+export const ReserveImportUploadBody = zod.object({
+  "fileName": zod.string().min(1).max(reserveImportUploadBodyFileNameMax),
+  "sizeBytes": zod.number().int().min(1).max(reserveImportUploadBodySizeBytesMax),
+  "contentType": zod.enum(['video/mp4'])
+})
+
+export const ReserveImportUploadResponse = zod.object({
+  "import": zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "entryMethod": zod.enum(['upload', 'link']),
+  "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
+  "sourceUrl": zod.string().nullable(),
+  "externalId": zod.string().nullable(),
+  "state": zod.enum(['file_required', 'awaiting_upload', 'queued', 'resolving', 'validating', 'uploading', 'processing', 'indexing', 'ready', 'failed', 'needs_review', 'cancel_requested', 'cancelled', 'expired']),
+  "statusMessage": zod.string(),
+  "progressPercent": zod.number().nullable(),
+  "errorCode": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "fileSizeBytes": zod.number().int().nullable(),
+  "hasAudio": zod.boolean().nullable(),
+  "sourcePlaybackAvailable": zod.boolean(),
+  "sourcePlaybackUrl": zod.string().nullable(),
+  "playbackAuthorized": zod.boolean(),
+  "timelineStatus": zod.enum(['not_applicable', 'unverified']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "expiresAt": zod.string(),
+  "searchesUsed": zod.number().int(),
+  "searchLimit": zod.number().int(),
+  "importsUsed": zod.number().int(),
+  "importLimit": zod.number().int()
+}),
+  "uploadURL": zod.string(),
+  "method": zod.enum(['PUT', 'POST']),
+  "headers": zod.record(zod.string(), zod.string()),
+  "expiresAt": zod.string()
+})
+
+
+/**
+ * Enqueue validation of stored bytes, not proof of completed indexing.
+ */
+export const CompleteImportUploadParams = zod.object({
+  "importId": zod.coerce.string().uuid()
+})
+
+export const CompleteImportUploadBody = zod.object({
+
+})
+
+export const CompleteImportUploadResponse = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "entryMethod": zod.enum(['upload', 'link']),
+  "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
+  "sourceUrl": zod.string().nullable(),
+  "externalId": zod.string().nullable(),
+  "state": zod.enum(['file_required', 'awaiting_upload', 'queued', 'resolving', 'validating', 'uploading', 'processing', 'indexing', 'ready', 'failed', 'needs_review', 'cancel_requested', 'cancelled', 'expired']),
+  "statusMessage": zod.string(),
+  "progressPercent": zod.number().nullable(),
+  "errorCode": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "fileSizeBytes": zod.number().int().nullable(),
+  "hasAudio": zod.boolean().nullable(),
+  "sourcePlaybackAvailable": zod.boolean(),
+  "sourcePlaybackUrl": zod.string().nullable(),
+  "playbackAuthorized": zod.boolean(),
+  "timelineStatus": zod.enum(['not_applicable', 'unverified']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "expiresAt": zod.string(),
+  "searchesUsed": zod.number().int(),
+  "searchLimit": zod.number().int(),
+  "importsUsed": zod.number().int(),
+  "importLimit": zod.number().int()
+})
+
+
+export const CancelImportParams = zod.object({
+  "importId": zod.coerce.string().uuid()
+})
+
+export const CancelImportBody = zod.object({
+
+})
+
+export const CancelImportResponse = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "entryMethod": zod.enum(['upload', 'link']),
+  "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
+  "sourceUrl": zod.string().nullable(),
+  "externalId": zod.string().nullable(),
+  "state": zod.enum(['file_required', 'awaiting_upload', 'queued', 'resolving', 'validating', 'uploading', 'processing', 'indexing', 'ready', 'failed', 'needs_review', 'cancel_requested', 'cancelled', 'expired']),
+  "statusMessage": zod.string(),
+  "progressPercent": zod.number().nullable(),
+  "errorCode": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "fileSizeBytes": zod.number().int().nullable(),
+  "hasAudio": zod.boolean().nullable(),
+  "sourcePlaybackAvailable": zod.boolean(),
+  "sourcePlaybackUrl": zod.string().nullable(),
+  "playbackAuthorized": zod.boolean(),
+  "timelineStatus": zod.enum(['not_applicable', 'unverified']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "expiresAt": zod.string(),
+  "searchesUsed": zod.number().int(),
+  "searchLimit": zod.number().int(),
+  "importsUsed": zod.number().int(),
+  "importLimit": zod.number().int()
+})
+
+
+export const AuthorizeImportPlaybackParams = zod.object({
+  "importId": zod.coerce.string().uuid()
+})
+
+export const AuthorizeImportPlaybackBody = zod.object({
+  "authorized": zod.boolean()
+})
+
+export const AuthorizeImportPlaybackResponse = zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "entryMethod": zod.enum(['upload', 'link']),
+  "sourceKind": zod.enum(['file', 'youtube', 'x', 'tiktok', 'vimeo']),
+  "sourceUrl": zod.string().nullable(),
+  "externalId": zod.string().nullable(),
+  "state": zod.enum(['file_required', 'awaiting_upload', 'queued', 'resolving', 'validating', 'uploading', 'processing', 'indexing', 'ready', 'failed', 'needs_review', 'cancel_requested', 'cancelled', 'expired']),
+  "statusMessage": zod.string(),
+  "progressPercent": zod.number().nullable(),
+  "errorCode": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "fileSizeBytes": zod.number().int().nullable(),
+  "hasAudio": zod.boolean().nullable(),
+  "sourcePlaybackAvailable": zod.boolean(),
+  "sourcePlaybackUrl": zod.string().nullable(),
+  "playbackAuthorized": zod.boolean(),
+  "timelineStatus": zod.enum(['not_applicable', 'unverified']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "expiresAt": zod.string(),
+  "searchesUsed": zod.number().int(),
+  "searchLimit": zod.number().int(),
+  "importsUsed": zod.number().int(),
+  "importLimit": zod.number().int()
+})
+
+
+export const StreamImportSourceParams = zod.object({
+  "importId": zod.coerce.string().uuid()
+})
+
+export const StreamImportSourceHeader = zod.object({
+  "Range": zod.string().optional()
+})
+
+export const StreamImportSourceResponse = zod.unknown()
+
+
+export const ListImportSearchesParams = zod.object({
+  "importId": zod.coerce.string().uuid()
+})
+
+export const listImportSearchesResponseMatchesItemRankMax = 5;
+
+export const listImportSearchesResponseMatchesMax = 5;
+
+
+
+export const ListImportSearchesResponseItem = zod.object({
+  "id": zod.string(),
+  "query": zod.string(),
+  "modality": zod.enum(['both', 'visual', 'audio']),
+  "createdAt": zod.string(),
+  "latencyMs": zod.number().int(),
+  "provider": zod.enum(['Twelve Labs']),
+  "partial": zod.boolean(),
+  "matches": zod.array(zod.object({
+  "rank": zod.number().int().min(1).max(listImportSearchesResponseMatchesItemRankMax),
+  "startSeconds": zod.number(),
+  "endSeconds": zod.number(),
+  "confidenceLabel": zod.string().nullable(),
+  "frameUrl": zod.string(),
+  "sourceUrl": zod.string().nullable()
+})).max(listImportSearchesResponseMatchesMax)
+})
+export const ListImportSearchesResponse = zod.array(ListImportSearchesResponseItem)
+
+
+export const SearchImportParams = zod.object({
+  "importId": zod.coerce.string().uuid()
+})
+
+export const searchImportBodyQueryMax = 500;
+
+export const searchImportBodyModalityDefault = `both`;
+
+export const SearchImportBody = zod.object({
+  "query": zod.string().min(1).max(searchImportBodyQueryMax),
+  "modality": zod.enum(['both', 'visual', 'audio']).default(searchImportBodyModalityDefault)
+})
+
+export const searchImportResponseMatchesItemRankMax = 5;
+
+export const searchImportResponseMatchesMax = 5;
+
+
+
+export const SearchImportResponse = zod.object({
+  "id": zod.string(),
+  "query": zod.string(),
+  "modality": zod.enum(['both', 'visual', 'audio']),
+  "createdAt": zod.string(),
+  "latencyMs": zod.number().int(),
+  "provider": zod.enum(['Twelve Labs']),
+  "partial": zod.boolean(),
+  "matches": zod.array(zod.object({
+  "rank": zod.number().int().min(1).max(searchImportResponseMatchesItemRankMax),
+  "startSeconds": zod.number(),
+  "endSeconds": zod.number(),
+  "confidenceLabel": zod.string().nullable(),
+  "frameUrl": zod.string(),
+  "sourceUrl": zod.string().nullable()
+})).max(searchImportResponseMatchesMax)
+})
+
+
+export const getImportFramePathRankMax = 5;
+
+
+
+export const GetImportFrameParams = zod.object({
+  "importId": zod.coerce.string().uuid(),
+  "searchId": zod.coerce.string().uuid(),
+  "rank": zod.coerce.number().int().min(1).max(getImportFramePathRankMax)
+})
+
+export const GetImportFrameResponse = zod.unknown()
+
+
 /**
  * @summary Read the current one-video proof and its measured checks
  */

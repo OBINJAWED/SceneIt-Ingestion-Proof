@@ -1,6 +1,9 @@
-# SceneIt — one-video ingestion proof
+# SceneIt — private single-video imports and preserved demo
 
-A focused proof of real Twelve Labs scene retrieval over one authorized source file, with the corresponding YouTube playback and transparent validation evidence. This is not the full SceneIt rebuild.
+SceneIt accepts a private authorized MP4 without any external link, or a supported
+video link with authorized direct retrieval/file fallback. The original one-video
+proof remains a separate public demo with its existing quota, evidence and media
+permissions. This is not a full video library or cross-video search product.
 
 ## Run & Operate
 
@@ -13,6 +16,11 @@ A focused proof of real Twelve Labs scene retrieval over one authorized source f
 - Required secrets: `TWELVE_LABS_API_KEY`, `DATABASE_URL`; never print values
 - In `artifacts/api-server`: `python3 -m sceneit.worker run --max-seconds 1200` resumes ingestion without submitting another upload when identifiers exist.
 - The worker is operator-only. It is never invoked from web requests.
+- New private imports use a separate always-on worker: `pnpm --filter @workspace/api-server run worker`.
+- Apply additive **development-only** migrations explicitly with `python3 scripts/migrate-development.py --development`.
+- New auth uses verified OIDC + PKCE and PostgreSQL sessions. Files are private App Storage objects; every new media/status/search operation is owner-scoped.
+- Development runs web and import worker as separate workflows. `start:with-worker` supplies a supervised production launch option, but is **not enabled**. The current autoscale web-only deployment cannot run durable ingestion; obtain approval before changing runtime, billing, or deployment.
+- See `artifacts/api-server/docs/import-operations.md` for limits, retention, extractor controls, and operator reconciliation.
 - Development DDL lives in `artifacts/api-server/sceneit/schema.sql`. Do not run the unused Drizzle schema push against these Python-owned tables. Do not apply schema changes on application startup or in a production build.
 
 ## Stack
@@ -42,13 +50,14 @@ A focused proof of real Twelve Labs scene retrieval over one authorized source f
 
 ## Product
 
-- One fixed source video, real visual/audio semantic search, provider-ranked timestamp matches, YouTube playback and optional approximate loops.
+- Main entry: authorized standalone MP4 or YouTube/X/TikTok/Vimeo link. YouTube is context plus an authorized MP4, never downloading. Other platforms attempt only safely retrievable direct MP4s, otherwise request an authorized file.
+- The preserved demo uses one fixed source video, real visual/audio semantic search, provider-ranked timestamp matches, YouTube playback and optional approximate loops.
 - Source stills are derived on demand at each match midpoint. The original MP4 is not exposed by a public download route.
 - Postgres-backed job identifiers and previous successful searches survive web restarts.
 - Reopening a saved search makes no new provider call. A shared, transactional 50-submission limit bounds this proof's search use.
 - Search phrases are stored in the shared proof; do not enter private information.
 - The approved source material is an original/authorized file plus its matching YouTube link. No YouTube downloader is part of the ingestion pipeline.
-- No public upload/admin endpoints, accounts, general video library, RunPod, or full shared-scene system in this proof.
+- New uploads and accounts are separate private-import functionality; no anonymous uploads, general video library, RunPod, public sharing, or full shared-scene system.
 
 ## User preferences
 

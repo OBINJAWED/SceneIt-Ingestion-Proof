@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "python3 -m sceneit.server",
+    "worker": "python3 -m sceneit.import_worker",
+    "start:with-worker": "python3 -m sceneit.runtime",
+    "test": "python3 -m unittest discover -s tests -v",
     "build": "python3 -m compileall -q sceneit",
     "start": "gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 2 --timeout 90 sceneit.server:app",
     "typecheck": "python3 -m compileall -q sceneit"

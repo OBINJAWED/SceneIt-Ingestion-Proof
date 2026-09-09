@@ -25,10 +25,10 @@ catalogs:
       specifier: ^25.3.3
       version: 25.9.5
     '@types/react':
-      specifier: ^19.2.0
+      specifier: 19.2.18
       version: 19.2.18
     '@types/react-dom':
-      specifier: ^19.2.0
+      specifier: 19.2.4
       version: 19.2.4
     '@vitejs/plugin-react':
       specifier: ^5.0.4
@@ -522,6 +522,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/replit-auth-web':
+        specifier: workspace:*
+        version: link:../../lib/replit-auth-web
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -637,6 +640,25 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+
+  lib/replit-auth-web:
+    dependencies:
+      '@tanstack/react-query':
+        specifier: 'catalog:'
+        version: 5.101.4(react@19.1.0)
+      '@workspace/api-client-react':
+        specifier: workspace:*
+        version: link:../api-client-react
+      react:
+        specifier: 'catalog:'
+        version: 19.1.0
+    devDependencies:
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.2.4(@types/react@19.2.18)
 
   scripts:
     devDependencies:

@@ -7,8 +7,22 @@
  */
 
 export * from './apiFailure';
+export * from './authState';
+export * from './authStateUser';
+export * from './createImport';
+export * from './createImportEntryMethod';
+export * from './emptyRequest';
 export * from './failureResponse';
 export * from './healthStatus';
+export * from './importConfig';
+export * from './importMatch';
+export * from './importResponseResponse';
+export * from './importSearch';
+export * from './importSearchModality';
+export * from './importSearchProvider';
+export * from './loginParams';
+export * from './logout200';
+export * from './playbackAuthorization';
 export * from './proof';
 export * from './proofCheck';
 export * from './proofCheckStatus';
@@ -21,3 +35,13 @@ export * from './sceneQueryModality';
 export * from './sceneSearch';
 export * from './sceneSearchModality';
 export * from './sceneSearchProvider';
+export * from './uploadRequest';
+export * from './uploadRequestContentType';
+export * from './uploadReservation';
+export * from './uploadReservationHeaders';
+export * from './uploadReservationMethod';
+export * from './videoImport';
+export * from './videoImportEntryMethod';
+export * from './videoImportSourceKind';
+export * from './videoImportState';
+export * from './videoImportTimelineStatus';

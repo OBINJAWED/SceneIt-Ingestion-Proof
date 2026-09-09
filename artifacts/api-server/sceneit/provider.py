@@ -123,17 +123,21 @@ class TwelveLabsClient:
                     retryable=True, ambiguous=mutation) from None
 
             if response.is_success:
+                if response.status_code == 204 or not response.content:
+                    return {}
                 try:
                     body = response.json()
                 except ValueError:
                     raise ProviderError(
                         "invalid_response",
                         "Twelve Labs returned a non-JSON success response.",
+                        ambiguous=mutation,
                         http_status=response.status_code) from None
                 if not isinstance(body, dict):
                     raise ProviderError(
                         "invalid_response",
                         "Twelve Labs returned an unexpected response shape.",
+                        ambiguous=mutation,
                         http_status=response.status_code)
                 return body
 
@@ -158,14 +162,16 @@ class TwelveLabsClient:
         return metadata
 
     @staticmethod
-    def _identified(body: dict[str, Any], *, status: bool = False
+    def _identified(body: dict[str, Any], *, status: bool = False,
+                    uncertain: bool = False
                     ) -> dict[str, Any]:
         if not isinstance(body.get("_id"), str) or (
             status and not isinstance(body.get("status"), str)
         ):
             raise ProviderError(
                 "invalid_response",
-                "Twelve Labs omitted required response fields.")
+                "Twelve Labs omitted required response fields.",
+                ambiguous=uncertain)
         return body
 
     def list_indexes(self) -> list[dict[str, Any]]:
@@ -191,7 +197,8 @@ class TwelveLabsClient:
                 break
         return indexes
 
-    def create_index(self, name: str) -> dict[str, Any]:
+    def create_index(self, name: str, has_audio: bool = True) -> dict[str, Any]:
+        options = ["visual", "audio"] if has_audio else ["visual"]
         return self._identified(self._request(
             "POST",
             "/indexes",
@@ -199,9 +206,9 @@ class TwelveLabsClient:
             json={
                 "index_name": name,
                 "models": [{"model_name": "marengo3.0",
-                            "model_options": ["visual", "audio"]}],
+                            "model_options": options}],
             },
-        ))
+        ), uncertain=True)
 
     def upload_asset(self, path: str | os.PathLike[str],
                      metadata: dict[str, Any]) -> dict[str, Any]:
@@ -225,7 +232,7 @@ class TwelveLabsClient:
                     files={"file": (file_path.name, stream, media_type or
                                     "application/octet-stream")},
                 ),
-                status=True,
+                status=True, uncertain=True,
             )
 
     def get_asset(self, asset_id: str) -> dict[str, Any]:
@@ -240,7 +247,7 @@ class TwelveLabsClient:
             mutation=True,
             json={"asset_id": asset_id,
                   "user_metadata": self._metadata(metadata)},
-        ))
+        ), uncertain=True)
 
     def get_indexed_asset(self, index_id: str,
                           indexed_id: str) -> dict[str, Any]:
@@ -249,6 +256,35 @@ class TwelveLabsClient:
                 "GET", f"/indexes/{index_id}/indexed-assets/{indexed_id}"),
             status=True,
         )
+
+    def get_index(self, index_id: str) -> dict[str, Any]:
+        return self._identified(self._request("GET", f"/indexes/{index_id}"))
+
+    def delete_index(self, index_id: str) -> dict[str, Any]:
+        try:
+            return self._request("DELETE", f"/indexes/{index_id}", mutation=True)
+        except ProviderError as exc:
+            if exc.http_status == 404:
+                return {}
+            raise
+
+    def delete_asset(self, asset_id: str) -> dict[str, Any]:
+        try:
+            return self._request("DELETE", f"/assets/{asset_id}", mutation=True)
+        except ProviderError as exc:
+            if exc.http_status == 404:
+                return {}
+            raise
+
+    def delete_indexed_asset(self, index_id: str, indexed_id: str) -> dict[str, Any]:
+        try:
+            return self._request(
+                "DELETE", f"/indexes/{index_id}/indexed-assets/{indexed_id}",
+                mutation=True)
+        except ProviderError as exc:
+            if exc.http_status == 404:
+                return {}
+            raise
 
     def search(self, index_id: str, query: str, modality: str,
                indexed_id: str) -> dict[str, Any]:
@@ -269,7 +305,7 @@ class TwelveLabsClient:
             ("filter", (None, json.dumps({"id": [indexed_id]}))),
         ]
         fields.extend(("search_options", (None, option)) for option in options)
-        body = self._request("POST", "/search", files=fields)
+        body = self._request("POST", "/search", files=fields, mutation=True)
         if not isinstance(body.get("data"), list) or not isinstance(
             body.get("page_info"), dict
         ):

@@ -1,4 +1,4 @@
-"""Flask API. Ingestion is deliberately absent from the public HTTP surface."""
+"""Flask API: legacy public proof plus owner-scoped private import requests."""
 import io
 import json
 import logging
@@ -22,6 +22,10 @@ from .storage import safe_content_range, signed_url
 ROOT = Path(__file__).resolve().parents[3]
 logger = logging.getLogger("sceneit")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
+# Standard access logs include the complete callback query (an OIDC authorization
+# code). Keep application event/error logs, not raw request lines or bearer URLs.
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
+logging.getLogger("gunicorn.access").disabled = True
 frame_slots = threading.BoundedSemaphore(2)
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
@@ -31,13 +35,13 @@ app.config["MAX_CONTENT_LENGTH"] = 4096
 @app.before_request
 def protect_requests():
     request.request_id = uuid.uuid4().hex
-    if request.method != "POST":
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
         return
     origin = request.headers.get("Origin")
     if origin and urlsplit(origin).netloc != request.host:
         raise ProofError("origin_rejected", "Cross-site requests are not permitted.", 403)
     if not request.is_json:
-        raise ProofError("json_required", "Send a JSON scene description.", 400)
+        raise ProofError("json_required", "Send a JSON request.", 400)
 
 
 @app.after_request
@@ -47,6 +51,10 @@ def security_headers(response):
     response.headers["X-Request-ID"] = getattr(request, "request_id", "")
     if response.mimetype == "application/json":
         response.headers.setdefault("Cache-Control", "no-store")
+    if request.path.startswith(("/api/imports", "/api/auth", "/api/login", "/api/callback", "/api/logout")):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Vary"] = "Cookie"
+        response.headers["Referrer-Policy"] = "no-referrer"
     return response
 
 
@@ -204,6 +212,13 @@ def unexpected_error(error):
     logger.error(json.dumps({"event": "request_failed", "request_id": getattr(request, "request_id", None),
                              "type": type(error).__name__}))
     return jsonify(error="The proof service could not complete this request.", code="internal_error"), 500
+
+
+from .auth import init_auth
+from .imports import imports_bp
+
+init_auth(app)
+app.register_blueprint(imports_bp)
 
 
 if __name__ == "__main__":

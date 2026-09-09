@@ -4,6 +4,8 @@ import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Home from '@/pages/home';
+import ImportsIndex from '@/pages/index';
+import SingleImport from '@/pages/import';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -17,7 +19,9 @@ const queryClient = new QueryClient({
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Home} />
+      <Route path="/" component={ImportsIndex} />
+      <Route path="/demo" component={Home} />
+      <Route path="/imports/:id" component={SingleImport} />
       <Route>
         <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-background text-primary font-mono text-center p-4">
           <h1 className="text-4xl font-bold mb-4 font-sans">&gt; 404_NOT_FOUND</h1>

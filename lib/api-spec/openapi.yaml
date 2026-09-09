@@ -11,6 +11,217 @@ tags:
   - name: health
     description: Health operations
 paths:
+  /auth/user:
+    get:
+      operationId: getCurrentAuthUser
+      responses:
+        "200":
+          description: Current session and CSRF token; never cached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthState"
+  /login:
+    get:
+      operationId: login
+      parameters:
+        - { name: returnTo, in: query, schema: { type: string } }
+      responses:
+        "302": { description: OIDC authorization redirect }
+  /callback:
+    get:
+      operationId: authCallback
+      responses:
+        "302": { description: Verified session redirect }
+  /logout:
+    post:
+      operationId: logout
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      responses:
+        "200":
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success]
+                properties:
+                  success: { type: boolean }
+  /imports/config:
+    get:
+      operationId: getImportConfig
+      responses:
+        "200":
+          description: Enforced import limits and worker availability
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportConfig"
+  /imports/current:
+    get:
+      operationId: getCurrentImport
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Most recent private import, or null
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: "#/components/schemas/VideoImport"
+                  - { type: "null" }
+  /imports:
+    post:
+      operationId: createImport
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateImport"
+      responses:
+        "200": { $ref: "#/components/responses/ImportResponse" }
+        "400": { $ref: "#/components/responses/Failure" }
+        "401": { $ref: "#/components/responses/Failure" }
+        "409": { $ref: "#/components/responses/Failure" }
+        "429": { $ref: "#/components/responses/Failure" }
+  /imports/{importId}:
+    parameters:
+      - $ref: "#/components/parameters/ImportId"
+    get:
+      operationId: getImport
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200": { $ref: "#/components/responses/ImportResponse" }
+        "404": { $ref: "#/components/responses/Failure" }
+  /imports/{importId}/upload:
+    parameters:
+      - $ref: "#/components/parameters/ImportId"
+    post:
+      operationId: reserveImportUpload
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadRequest"
+      responses:
+        "200":
+          description: Short-lived immutable private upload reservation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadReservation"
+        "400": { $ref: "#/components/responses/Failure" }
+        "409": { $ref: "#/components/responses/Failure" }
+  /imports/{importId}/complete:
+    parameters:
+      - $ref: "#/components/parameters/ImportId"
+    post:
+      operationId: completeImportUpload
+      description: Enqueue validation of stored bytes, not proof of completed indexing.
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/ImportResponse" }
+        "409": { $ref: "#/components/responses/Failure" }
+  /imports/{importId}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/ImportId"
+    post:
+      operationId: cancelImport
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/ImportResponse" }
+  /imports/{importId}/playback:
+    parameters:
+      - $ref: "#/components/parameters/ImportId"
+    post:
+      operationId: authorizeImportPlayback
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlaybackAuthorization" }
+      responses:
+        "200": { $ref: "#/components/responses/ImportResponse" }
+  /imports/{importId}/source:
+    parameters:
+      - $ref: "#/components/parameters/ImportId"
+    get:
+      operationId: streamImportSource
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { name: Range, in: header, schema: { type: string } }
+      responses:
+        "200":
+          description: Owner-authorized private source
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        "206":
+          description: Owner-authorized source byte range
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/Failure" }
+        "416": { $ref: "#/components/responses/Failure" }
+  /imports/{importId}/searches:
+    parameters:
+      - $ref: "#/components/parameters/ImportId"
+    get:
+      operationId: listImportSearches
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Owner-only saved searches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ImportSearch" }
+    post:
+      operationId: searchImport
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SceneQuery" }
+      responses:
+        "200":
+          description: Provider-ranked candidate moments from this indexed asset only
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportSearch" }
+        "409": { $ref: "#/components/responses/Failure" }
+        "429": { $ref: "#/components/responses/Failure" }
+        "502": { $ref: "#/components/responses/Failure" }
+  /imports/{importId}/searches/{searchId}/frames/{rank}:
+    parameters:
+      - $ref: "#/components/parameters/ImportId"
+      - { name: searchId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: rank, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 5 } }
+    get:
+      operationId: getImportFrame
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Private source still at the candidate segment midpoint
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/Failure" }
   /proof:
     get:
       operationId: getProof
@@ -110,7 +321,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 components:
+  securitySchemes:
+    sessionCookie: { type: apiKey, in: cookie, name: __Host-sceneit_session }
+    csrfToken: { type: apiKey, in: header, name: X-CSRF-Token }
+  parameters:
+    ImportId:
+      name: importId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
   responses:
+    ImportResponse:
+      description: Current private import
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/VideoImport" }
     Failure:
       description: Safe, actionable failure
       content:
@@ -118,6 +343,119 @@ components:
           schema:
             $ref: "#/components/schemas/ApiFailure"
   schemas:
+    EmptyRequest:
+      type: object
+      additionalProperties: false
+    PlaybackAuthorization:
+      type: object
+      additionalProperties: false
+      required: [authorized]
+      properties:
+        authorized: { type: boolean }
+    AuthState:
+      type: object
+      required: [user, csrfToken]
+      properties:
+        csrfToken: { type: [string, "null"] }
+        user:
+          type: [object, "null"]
+          required: [id, firstName]
+          properties:
+            id: { type: string }
+            firstName: { type: [string, "null"] }
+    ImportConfig:
+      type: object
+      required: [maxBytes, minDurationSeconds, maxDurationSeconds, retentionDays, ownerImportLimit, appImportLimit, ownerSearchLimit, appSearchLimit, workerAvailable]
+      properties:
+        maxBytes: { type: integer }
+        minDurationSeconds: { type: number }
+        maxDurationSeconds: { type: number }
+        retentionDays: { type: integer }
+        ownerImportLimit: { type: integer }
+        appImportLimit: { type: integer }
+        ownerSearchLimit: { type: integer }
+        appSearchLimit: { type: integer }
+        workerAvailable: { type: boolean }
+    CreateImport:
+      type: object
+      additionalProperties: false
+      required: [entryMethod, analysisAuthorized, playbackAuthorized, idempotencyKey]
+      properties:
+        entryMethod: { type: string, enum: [upload, link] }
+        sourceUrl: { type: string, maxLength: 2048 }
+        analysisAuthorized: { type: boolean, enum: [true] }
+        playbackAuthorized: { type: boolean }
+        idempotencyKey: { type: string, format: uuid }
+    UploadRequest:
+      type: object
+      additionalProperties: false
+      required: [fileName, sizeBytes, contentType]
+      properties:
+        fileName: { type: string, minLength: 1, maxLength: 255 }
+        sizeBytes: { type: integer, minimum: 1, maximum: 200000000 }
+        contentType: { type: string, enum: [video/mp4] }
+    UploadReservation:
+      type: object
+      required: [import, uploadURL, method, headers, expiresAt]
+      properties:
+        import: { $ref: "#/components/schemas/VideoImport" }
+        uploadURL: { type: string }
+        method: { type: string, enum: [PUT, POST] }
+        headers: { type: object, additionalProperties: { type: string } }
+        expiresAt: { type: string }
+    VideoImport:
+      type: object
+      required: [id, title, entryMethod, sourceKind, sourceUrl, externalId, state, statusMessage, progressPercent, errorCode, durationSeconds, fileSizeBytes, hasAudio, sourcePlaybackAvailable, sourcePlaybackUrl, playbackAuthorized, timelineStatus, createdAt, updatedAt, expiresAt, searchesUsed, searchLimit, importsUsed, importLimit]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        entryMethod: { type: string, enum: [upload, link] }
+        sourceKind: { type: string, enum: [file, youtube, x, tiktok, vimeo] }
+        sourceUrl: { type: [string, "null"] }
+        externalId: { type: [string, "null"] }
+        state: { type: string, enum: [file_required, awaiting_upload, queued, resolving, validating, uploading, processing, indexing, ready, failed, needs_review, cancel_requested, cancelled, expired] }
+        statusMessage: { type: string }
+        progressPercent: { type: [number, "null"] }
+        errorCode: { type: [string, "null"] }
+        durationSeconds: { type: [number, "null"] }
+        fileSizeBytes: { type: [integer, "null"] }
+        hasAudio: { type: [boolean, "null"] }
+        sourcePlaybackAvailable: { type: boolean }
+        sourcePlaybackUrl: { type: [string, "null"] }
+        playbackAuthorized: { type: boolean }
+        timelineStatus: { type: string, enum: [not_applicable, unverified] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        expiresAt: { type: string }
+        searchesUsed: { type: integer }
+        searchLimit: { type: integer }
+        importsUsed: { type: integer }
+        importLimit: { type: integer }
+    ImportMatch:
+      type: object
+      required: [rank, startSeconds, endSeconds, confidenceLabel, frameUrl, sourceUrl]
+      properties:
+        rank: { type: integer, minimum: 1, maximum: 5 }
+        startSeconds: { type: number }
+        endSeconds: { type: number }
+        confidenceLabel: { type: [string, "null"] }
+        frameUrl: { type: string }
+        sourceUrl: { type: [string, "null"] }
+    ImportSearch:
+      type: object
+      required: [id, query, modality, createdAt, latencyMs, matches, provider, partial]
+      properties:
+        id: { type: string }
+        query: { type: string }
+        modality: { type: string, enum: [both, visual, audio] }
+        createdAt: { type: string }
+        latencyMs: { type: integer }
+        provider: { type: string, enum: [Twelve Labs] }
+        partial: { type: boolean }
+        matches:
+          type: array
+          maxItems: 5
+          items: { $ref: "#/components/schemas/ImportMatch" }
     ApiFailure:
       type: object
       required: [error, code]

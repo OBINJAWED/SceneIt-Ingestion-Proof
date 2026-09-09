@@ -5,6 +5,221 @@
  * SceneIt one-video ingestion and semantic-search proof.
  * OpenAPI spec version: 0.1.0
  */
+export interface EmptyRequest { [key: string]: unknown }
+
+export interface PlaybackAuthorization {
+  authorized: boolean;
+}
+
+/**
+ * @nullable
+ */
+export type AuthStateUser = {
+  id: string;
+  /** @nullable */
+  firstName: string | null;
+} | null;
+
+export interface AuthState {
+  /** @nullable */
+  csrfToken: string | null;
+  /** @nullable */
+  user: AuthStateUser;
+}
+
+export interface ImportConfig {
+  maxBytes: number;
+  minDurationSeconds: number;
+  maxDurationSeconds: number;
+  retentionDays: number;
+  ownerImportLimit: number;
+  appImportLimit: number;
+  ownerSearchLimit: number;
+  appSearchLimit: number;
+  workerAvailable: boolean;
+}
+
+export type CreateImportEntryMethod = typeof CreateImportEntryMethod[keyof typeof CreateImportEntryMethod];
+
+
+export const CreateImportEntryMethod = {
+  upload: 'upload',
+  link: 'link',
+} as const;
+
+export interface CreateImport {
+  entryMethod: CreateImportEntryMethod;
+  /** @maxLength 2048 */
+  sourceUrl?: string;
+  analysisAuthorized: true;
+  playbackAuthorized: boolean;
+  idempotencyKey: string;
+}
+
+export type UploadRequestContentType = typeof UploadRequestContentType[keyof typeof UploadRequestContentType];
+
+
+export const UploadRequestContentType = {
+  'video/mp4': 'video/mp4',
+} as const;
+
+export interface UploadRequest {
+  /**
+     * @minLength 1
+     * @maxLength 255
+     */
+  fileName: string;
+  /**
+     * @minimum 1
+     * @maximum 200000000
+     */
+  sizeBytes: number;
+  contentType: UploadRequestContentType;
+}
+
+export type UploadReservationMethod = typeof UploadReservationMethod[keyof typeof UploadReservationMethod];
+
+
+export const UploadReservationMethod = {
+  PUT: 'PUT',
+  POST: 'POST',
+} as const;
+
+export type UploadReservationHeaders = {[key: string]: string};
+
+export type VideoImportEntryMethod = typeof VideoImportEntryMethod[keyof typeof VideoImportEntryMethod];
+
+
+export const VideoImportEntryMethod = {
+  upload: 'upload',
+  link: 'link',
+} as const;
+
+export type VideoImportSourceKind = typeof VideoImportSourceKind[keyof typeof VideoImportSourceKind];
+
+
+export const VideoImportSourceKind = {
+  file: 'file',
+  youtube: 'youtube',
+  x: 'x',
+  tiktok: 'tiktok',
+  vimeo: 'vimeo',
+} as const;
+
+export type VideoImportState = typeof VideoImportState[keyof typeof VideoImportState];
+
+
+export const VideoImportState = {
+  file_required: 'file_required',
+  awaiting_upload: 'awaiting_upload',
+  queued: 'queued',
+  resolving: 'resolving',
+  validating: 'validating',
+  uploading: 'uploading',
+  processing: 'processing',
+  indexing: 'indexing',
+  ready: 'ready',
+  failed: 'failed',
+  needs_review: 'needs_review',
+  cancel_requested: 'cancel_requested',
+  cancelled: 'cancelled',
+  expired: 'expired',
+} as const;
+
+export type VideoImportTimelineStatus = typeof VideoImportTimelineStatus[keyof typeof VideoImportTimelineStatus];
+
+
+export const VideoImportTimelineStatus = {
+  not_applicable: 'not_applicable',
+  unverified: 'unverified',
+} as const;
+
+export interface VideoImport {
+  id: string;
+  title: string;
+  entryMethod: VideoImportEntryMethod;
+  sourceKind: VideoImportSourceKind;
+  /** @nullable */
+  sourceUrl: string | null;
+  /** @nullable */
+  externalId: string | null;
+  state: VideoImportState;
+  statusMessage: string;
+  /** @nullable */
+  progressPercent: number | null;
+  /** @nullable */
+  errorCode: string | null;
+  /** @nullable */
+  durationSeconds: number | null;
+  /** @nullable */
+  fileSizeBytes: number | null;
+  /** @nullable */
+  hasAudio: boolean | null;
+  sourcePlaybackAvailable: boolean;
+  /** @nullable */
+  sourcePlaybackUrl: string | null;
+  playbackAuthorized: boolean;
+  timelineStatus: VideoImportTimelineStatus;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  searchesUsed: number;
+  searchLimit: number;
+  importsUsed: number;
+  importLimit: number;
+}
+
+export interface UploadReservation {
+  import: VideoImport;
+  uploadURL: string;
+  method: UploadReservationMethod;
+  headers: UploadReservationHeaders;
+  expiresAt: string;
+}
+
+export interface ImportMatch {
+  /**
+     * @minimum 1
+     * @maximum 5
+     */
+  rank: number;
+  startSeconds: number;
+  endSeconds: number;
+  /** @nullable */
+  confidenceLabel: string | null;
+  frameUrl: string;
+  /** @nullable */
+  sourceUrl: string | null;
+}
+
+export type ImportSearchModality = typeof ImportSearchModality[keyof typeof ImportSearchModality];
+
+
+export const ImportSearchModality = {
+  both: 'both',
+  visual: 'visual',
+  audio: 'audio',
+} as const;
+
+export type ImportSearchProvider = typeof ImportSearchProvider[keyof typeof ImportSearchProvider];
+
+
+export const ImportSearchProvider = {
+  Twelve_Labs: 'Twelve Labs',
+} as const;
+
+export interface ImportSearch {
+  id: string;
+  query: string;
+  modality: ImportSearchModality;
+  createdAt: string;
+  latencyMs: number;
+  provider: ImportSearchProvider;
+  partial: boolean;
+  /** @maxItems 5 */
+  matches: ImportMatch[];
+}
+
 export interface ApiFailure {
   error: string;
   code: string;
@@ -138,7 +353,20 @@ export interface HealthStatus {
 }
 
 /**
+ * Current private import
+ */
+export type ImportResponseResponse = VideoImport;
+
+/**
  * Safe, actionable failure
  */
 export type FailureResponse = ApiFailure;
+
+export type LoginParams = {
+returnTo?: string;
+};
+
+export type Logout200 = {
+  success: boolean;
+};
 

@@ -20,12 +20,24 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AuthState,
+  CreateImport,
+  EmptyRequest,
   FailureResponse,
   HealthStatus,
+  ImportConfig,
+  ImportResponseResponse,
+  ImportSearch,
+  LoginParams,
+  Logout200,
+  PlaybackAuthorization,
   Proof,
   ProofReport,
   SceneQuery,
-  SceneSearch
+  SceneSearch,
+  UploadRequest,
+  UploadReservation,
+  VideoImport
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -54,6 +66,1125 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getGetCurrentAuthUserUrl = () => {
+
+
+
+
+  return `/api/auth/user`
+}
+
+export const getCurrentAuthUser = async ( options?: Parameters<typeof customFetch>[1]): Promise<AuthState> => {
+
+  return customFetch<AuthState>(getGetCurrentAuthUserUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCurrentAuthUserQueryKey = () => {
+    return [
+    `/api/auth/user`
+    ] as const;
+    }
+
+
+export const getGetCurrentAuthUserQueryOptions = <TData = Awaited<ReturnType<typeof getCurrentAuthUser>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCurrentAuthUser>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCurrentAuthUserQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCurrentAuthUser>>> = ({ signal }) => getCurrentAuthUser({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCurrentAuthUser>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCurrentAuthUserQueryResult = NonNullable<Awaited<ReturnType<typeof getCurrentAuthUser>>>
+export type GetCurrentAuthUserQueryError = ErrorType<unknown>
+
+
+
+export function useGetCurrentAuthUser<TData = Awaited<ReturnType<typeof getCurrentAuthUser>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCurrentAuthUser>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCurrentAuthUserQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getLoginUrl = (params?: LoginParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/login?${stringifiedParams}` : `/api/login`
+}
+
+export const login = async (params?: LoginParams, options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
+
+  return customFetch<unknown>(getLoginUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getLoginQueryKey = (params?: LoginParams,) => {
+    return [
+    `/api/login`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getLoginQueryOptions = <TData = Awaited<ReturnType<typeof login>>, TError = ErrorType<void>>(params?: LoginParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof login>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getLoginQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof login>>> = ({ signal }) => login(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof login>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type LoginQueryResult = NonNullable<Awaited<ReturnType<typeof login>>>
+export type LoginQueryError = ErrorType<void>
+
+
+
+export function useLogin<TData = Awaited<ReturnType<typeof login>>, TError = ErrorType<void>>(
+ params?: LoginParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof login>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getLoginQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAuthCallbackUrl = () => {
+
+
+
+
+  return `/api/callback`
+}
+
+export const authCallback = async ( options?: Parameters<typeof customFetch>[1]): Promise<unknown> => {
+
+  return customFetch<unknown>(getAuthCallbackUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAuthCallbackQueryKey = () => {
+    return [
+    `/api/callback`
+    ] as const;
+    }
+
+
+export const getAuthCallbackQueryOptions = <TData = Awaited<ReturnType<typeof authCallback>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof authCallback>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAuthCallbackQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof authCallback>>> = ({ signal }) => authCallback({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof authCallback>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AuthCallbackQueryResult = NonNullable<Awaited<ReturnType<typeof authCallback>>>
+export type AuthCallbackQueryError = ErrorType<void>
+
+
+
+export function useAuthCallback<TData = Awaited<ReturnType<typeof authCallback>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof authCallback>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAuthCallbackQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getLogoutUrl = () => {
+
+
+
+
+  return `/api/logout`
+}
+
+export const logout = async ( options?: Parameters<typeof customFetch>[1]): Promise<Logout200> => {
+
+  return customFetch<Logout200>(getLogoutUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getLogoutMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logout>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof logout>>, TError,void, TContext> => {
+
+const mutationKey = ['logout'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof logout>>, void> = () => {
+
+
+          return  logout(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LogoutMutationResult = NonNullable<Awaited<ReturnType<typeof logout>>>
+
+    export type LogoutMutationError = ErrorType<unknown>
+
+    export const useLogout = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logout>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof logout>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getLogoutMutationOptions(options));
+    }
+
+export const getGetImportConfigUrl = () => {
+
+
+
+
+  return `/api/imports/config`
+}
+
+export const getImportConfig = async ( options?: Parameters<typeof customFetch>[1]): Promise<ImportConfig> => {
+
+  return customFetch<ImportConfig>(getGetImportConfigUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetImportConfigQueryKey = () => {
+    return [
+    `/api/imports/config`
+    ] as const;
+    }
+
+
+export const getGetImportConfigQueryOptions = <TData = Awaited<ReturnType<typeof getImportConfig>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImportConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetImportConfigQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getImportConfig>>> = ({ signal }) => getImportConfig({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getImportConfig>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetImportConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getImportConfig>>>
+export type GetImportConfigQueryError = ErrorType<unknown>
+
+
+
+export function useGetImportConfig<TData = Awaited<ReturnType<typeof getImportConfig>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImportConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetImportConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetCurrentImportUrl = () => {
+
+
+
+
+  return `/api/imports/current`
+}
+
+export const getCurrentImport = async ( options?: Parameters<typeof customFetch>[1]): Promise<VideoImport | null> => {
+
+  return customFetch<VideoImport | null>(getGetCurrentImportUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCurrentImportQueryKey = () => {
+    return [
+    `/api/imports/current`
+    ] as const;
+    }
+
+
+export const getGetCurrentImportQueryOptions = <TData = Awaited<ReturnType<typeof getCurrentImport>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCurrentImport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCurrentImportQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCurrentImport>>> = ({ signal }) => getCurrentImport({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCurrentImport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCurrentImportQueryResult = NonNullable<Awaited<ReturnType<typeof getCurrentImport>>>
+export type GetCurrentImportQueryError = ErrorType<unknown>
+
+
+
+export function useGetCurrentImport<TData = Awaited<ReturnType<typeof getCurrentImport>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCurrentImport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCurrentImportQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateImportUrl = () => {
+
+
+
+
+  return `/api/imports`
+}
+
+export const createImport = async (createImport: CreateImport, options?: Parameters<typeof customFetch>[1]): Promise<ImportResponseResponse> => {
+
+  return customFetch<ImportResponseResponse>(getCreateImportUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createImport)
+  }
+);}
+
+
+
+
+
+export const getCreateImportMutationOptions = <TError = ErrorType<FailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createImport>>, TError,{data: BodyType<CreateImport>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createImport>>, TError,{data: BodyType<CreateImport>}, TContext> => {
+
+const mutationKey = ['createImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createImport>>, {data: BodyType<CreateImport>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createImport(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateImportMutationResult = NonNullable<Awaited<ReturnType<typeof createImport>>>
+    export type CreateImportMutationBody = BodyType<CreateImport>
+    export type CreateImportMutationError = ErrorType<FailureResponse>
+
+    export const useCreateImport = <TError = ErrorType<FailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createImport>>, TError,{data: BodyType<CreateImport>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createImport>>,
+        TError,
+        {data: BodyType<CreateImport>},
+        TContext
+      > => {
+      return useMutation(getCreateImportMutationOptions(options));
+    }
+
+export const getGetImportUrl = (importId: string,) => {
+
+
+
+
+  return `/api/imports/${importId}`
+}
+
+export const getImport = async (importId: string, options?: Parameters<typeof customFetch>[1]): Promise<ImportResponseResponse> => {
+
+  return customFetch<ImportResponseResponse>(getGetImportUrl(importId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetImportQueryKey = (importId: string,) => {
+    return [
+    `/api/imports/${importId}`
+    ] as const;
+    }
+
+
+export const getGetImportQueryOptions = <TData = Awaited<ReturnType<typeof getImport>>, TError = ErrorType<FailureResponse>>(importId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetImportQueryKey(importId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getImport>>> = ({ signal }) => getImport(importId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: importId !== null && importId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getImport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetImportQueryResult = NonNullable<Awaited<ReturnType<typeof getImport>>>
+export type GetImportQueryError = ErrorType<FailureResponse>
+
+
+
+export function useGetImport<TData = Awaited<ReturnType<typeof getImport>>, TError = ErrorType<FailureResponse>>(
+ importId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetImportQueryOptions(importId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReserveImportUploadUrl = (importId: string,) => {
+
+
+
+
+  return `/api/imports/${importId}/upload`
+}
+
+export const reserveImportUpload = async (importId: string,
+    uploadRequest: UploadRequest, options?: Parameters<typeof customFetch>[1]): Promise<UploadReservation> => {
+
+  return customFetch<UploadReservation>(getReserveImportUploadUrl(importId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(uploadRequest)
+  }
+);}
+
+
+
+
+
+export const getReserveImportUploadMutationOptions = <TError = ErrorType<FailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reserveImportUpload>>, TError,{importId: string;data: BodyType<UploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reserveImportUpload>>, TError,{importId: string;data: BodyType<UploadRequest>}, TContext> => {
+
+const mutationKey = ['reserveImportUpload'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reserveImportUpload>>, {importId: string;data: BodyType<UploadRequest>}> = (props) => {
+          const {importId,data} = props ?? {};
+
+          return  reserveImportUpload(importId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReserveImportUploadMutationResult = NonNullable<Awaited<ReturnType<typeof reserveImportUpload>>>
+    export type ReserveImportUploadMutationBody = BodyType<UploadRequest>
+    export type ReserveImportUploadMutationError = ErrorType<FailureResponse>
+
+    export const useReserveImportUpload = <TError = ErrorType<FailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reserveImportUpload>>, TError,{importId: string;data: BodyType<UploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reserveImportUpload>>,
+        TError,
+        {importId: string;data: BodyType<UploadRequest>},
+        TContext
+      > => {
+      return useMutation(getReserveImportUploadMutationOptions(options));
+    }
+
+export const getCompleteImportUploadUrl = (importId: string,) => {
+
+
+
+
+  return `/api/imports/${importId}/complete`
+}
+
+/**
+ * Enqueue validation of stored bytes, not proof of completed indexing.
+ */
+export const completeImportUpload = async (importId: string,
+    emptyRequest?: EmptyRequest, options?: Parameters<typeof customFetch>[1]): Promise<ImportResponseResponse> => {
+
+  return customFetch<ImportResponseResponse>(getCompleteImportUploadUrl(importId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(emptyRequest)
+  }
+);}
+
+
+
+
+
+export const getCompleteImportUploadMutationOptions = <TError = ErrorType<FailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeImportUpload>>, TError,{importId: string;data?: BodyType<EmptyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeImportUpload>>, TError,{importId: string;data?: BodyType<EmptyRequest>}, TContext> => {
+
+const mutationKey = ['completeImportUpload'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeImportUpload>>, {importId: string;data?: BodyType<EmptyRequest>}> = (props) => {
+          const {importId,data} = props ?? {};
+
+          return  completeImportUpload(importId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteImportUploadMutationResult = NonNullable<Awaited<ReturnType<typeof completeImportUpload>>>
+    export type CompleteImportUploadMutationBody = BodyType<EmptyRequest> | undefined
+    export type CompleteImportUploadMutationError = ErrorType<FailureResponse>
+
+    export const useCompleteImportUpload = <TError = ErrorType<FailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeImportUpload>>, TError,{importId: string;data?: BodyType<EmptyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeImportUpload>>,
+        TError,
+        {importId: string;data?: BodyType<EmptyRequest>},
+        TContext
+      > => {
+      return useMutation(getCompleteImportUploadMutationOptions(options));
+    }
+
+export const getCancelImportUrl = (importId: string,) => {
+
+
+
+
+  return `/api/imports/${importId}/cancel`
+}
+
+export const cancelImport = async (importId: string,
+    emptyRequest?: EmptyRequest, options?: Parameters<typeof customFetch>[1]): Promise<ImportResponseResponse> => {
+
+  return customFetch<ImportResponseResponse>(getCancelImportUrl(importId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(emptyRequest)
+  }
+);}
+
+
+
+
+
+export const getCancelImportMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelImport>>, TError,{importId: string;data?: BodyType<EmptyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelImport>>, TError,{importId: string;data?: BodyType<EmptyRequest>}, TContext> => {
+
+const mutationKey = ['cancelImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelImport>>, {importId: string;data?: BodyType<EmptyRequest>}> = (props) => {
+          const {importId,data} = props ?? {};
+
+          return  cancelImport(importId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelImportMutationResult = NonNullable<Awaited<ReturnType<typeof cancelImport>>>
+    export type CancelImportMutationBody = BodyType<EmptyRequest> | undefined
+    export type CancelImportMutationError = ErrorType<unknown>
+
+    export const useCancelImport = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelImport>>, TError,{importId: string;data?: BodyType<EmptyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelImport>>,
+        TError,
+        {importId: string;data?: BodyType<EmptyRequest>},
+        TContext
+      > => {
+      return useMutation(getCancelImportMutationOptions(options));
+    }
+
+export const getAuthorizeImportPlaybackUrl = (importId: string,) => {
+
+
+
+
+  return `/api/imports/${importId}/playback`
+}
+
+export const authorizeImportPlayback = async (importId: string,
+    playbackAuthorization: PlaybackAuthorization, options?: Parameters<typeof customFetch>[1]): Promise<ImportResponseResponse> => {
+
+  return customFetch<ImportResponseResponse>(getAuthorizeImportPlaybackUrl(importId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(playbackAuthorization)
+  }
+);}
+
+
+
+
+
+export const getAuthorizeImportPlaybackMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof authorizeImportPlayback>>, TError,{importId: string;data: BodyType<PlaybackAuthorization>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof authorizeImportPlayback>>, TError,{importId: string;data: BodyType<PlaybackAuthorization>}, TContext> => {
+
+const mutationKey = ['authorizeImportPlayback'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof authorizeImportPlayback>>, {importId: string;data: BodyType<PlaybackAuthorization>}> = (props) => {
+          const {importId,data} = props ?? {};
+
+          return  authorizeImportPlayback(importId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AuthorizeImportPlaybackMutationResult = NonNullable<Awaited<ReturnType<typeof authorizeImportPlayback>>>
+    export type AuthorizeImportPlaybackMutationBody = BodyType<PlaybackAuthorization>
+    export type AuthorizeImportPlaybackMutationError = ErrorType<unknown>
+
+    export const useAuthorizeImportPlayback = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof authorizeImportPlayback>>, TError,{importId: string;data: BodyType<PlaybackAuthorization>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof authorizeImportPlayback>>,
+        TError,
+        {importId: string;data: BodyType<PlaybackAuthorization>},
+        TContext
+      > => {
+      return useMutation(getAuthorizeImportPlaybackMutationOptions(options));
+    }
+
+export const getStreamImportSourceUrl = (importId: string,) => {
+
+
+
+
+  return `/api/imports/${importId}/source`
+}
+
+export const streamImportSource = async (importId: string, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getStreamImportSourceUrl(importId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getStreamImportSourceQueryKey = (importId: string,) => {
+    return [
+    `/api/imports/${importId}/source`
+    ] as const;
+    }
+
+
+export const getStreamImportSourceQueryOptions = <TData = Awaited<ReturnType<typeof streamImportSource>>, TError = ErrorType<FailureResponse>>(importId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamImportSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getStreamImportSourceQueryKey(importId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof streamImportSource>>> = ({ signal }) => streamImportSource(importId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: importId !== null && importId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof streamImportSource>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type StreamImportSourceQueryResult = NonNullable<Awaited<ReturnType<typeof streamImportSource>>>
+export type StreamImportSourceQueryError = ErrorType<FailureResponse>
+
+
+
+export function useStreamImportSource<TData = Awaited<ReturnType<typeof streamImportSource>>, TError = ErrorType<FailureResponse>>(
+ importId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamImportSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getStreamImportSourceQueryOptions(importId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListImportSearchesUrl = (importId: string,) => {
+
+
+
+
+  return `/api/imports/${importId}/searches`
+}
+
+export const listImportSearches = async (importId: string, options?: Parameters<typeof customFetch>[1]): Promise<ImportSearch[]> => {
+
+  return customFetch<ImportSearch[]>(getListImportSearchesUrl(importId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListImportSearchesQueryKey = (importId: string,) => {
+    return [
+    `/api/imports/${importId}/searches`
+    ] as const;
+    }
+
+
+export const getListImportSearchesQueryOptions = <TData = Awaited<ReturnType<typeof listImportSearches>>, TError = ErrorType<unknown>>(importId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listImportSearches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListImportSearchesQueryKey(importId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listImportSearches>>> = ({ signal }) => listImportSearches(importId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: importId !== null && importId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listImportSearches>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListImportSearchesQueryResult = NonNullable<Awaited<ReturnType<typeof listImportSearches>>>
+export type ListImportSearchesQueryError = ErrorType<unknown>
+
+
+
+export function useListImportSearches<TData = Awaited<ReturnType<typeof listImportSearches>>, TError = ErrorType<unknown>>(
+ importId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listImportSearches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListImportSearchesQueryOptions(importId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSearchImportUrl = (importId: string,) => {
+
+
+
+
+  return `/api/imports/${importId}/searches`
+}
+
+export const searchImport = async (importId: string,
+    sceneQuery: SceneQuery, options?: Parameters<typeof customFetch>[1]): Promise<ImportSearch> => {
+
+  return customFetch<ImportSearch>(getSearchImportUrl(importId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(sceneQuery)
+  }
+);}
+
+
+
+
+
+export const getSearchImportMutationOptions = <TError = ErrorType<FailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchImport>>, TError,{importId: string;data: BodyType<SceneQuery>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof searchImport>>, TError,{importId: string;data: BodyType<SceneQuery>}, TContext> => {
+
+const mutationKey = ['searchImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof searchImport>>, {importId: string;data: BodyType<SceneQuery>}> = (props) => {
+          const {importId,data} = props ?? {};
+
+          return  searchImport(importId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SearchImportMutationResult = NonNullable<Awaited<ReturnType<typeof searchImport>>>
+    export type SearchImportMutationBody = BodyType<SceneQuery>
+    export type SearchImportMutationError = ErrorType<FailureResponse>
+
+    export const useSearchImport = <TError = ErrorType<FailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchImport>>, TError,{importId: string;data: BodyType<SceneQuery>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof searchImport>>,
+        TError,
+        {importId: string;data: BodyType<SceneQuery>},
+        TContext
+      > => {
+      return useMutation(getSearchImportMutationOptions(options));
+    }
+
+export const getGetImportFrameUrl = (importId: string,
+    searchId: string,
+    rank: number,) => {
+
+
+
+
+  return `/api/imports/${importId}/searches/${searchId}/frames/${rank}`
+}
+
+export const getImportFrame = async (importId: string,
+    searchId: string,
+    rank: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetImportFrameUrl(importId,searchId,rank),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetImportFrameQueryKey = (importId: string,
+    searchId: string,
+    rank: number,) => {
+    return [
+    `/api/imports/${importId}/searches/${searchId}/frames/${rank}`
+    ] as const;
+    }
+
+
+export const getGetImportFrameQueryOptions = <TData = Awaited<ReturnType<typeof getImportFrame>>, TError = ErrorType<FailureResponse>>(importId: string,
+    searchId: string,
+    rank: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImportFrame>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetImportFrameQueryKey(importId,searchId,rank);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getImportFrame>>> = ({ signal }) => getImportFrame(importId,searchId,rank, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: importId !== null && importId !== undefined && searchId !== null && searchId !== undefined && rank !== null && rank !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getImportFrame>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetImportFrameQueryResult = NonNullable<Awaited<ReturnType<typeof getImportFrame>>>
+export type GetImportFrameQueryError = ErrorType<FailureResponse>
+
+
+
+export function useGetImportFrame<TData = Awaited<ReturnType<typeof getImportFrame>>, TError = ErrorType<FailureResponse>>(
+ importId: string,
+    searchId: string,
+    rank: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImportFrame>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetImportFrameQueryOptions(importId,searchId,rank,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetProofUrl = () => {
 
