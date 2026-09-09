@@ -15,3 +15,17 @@ storage_uri = "gcs://replit-rams-assets-reed/rams/assets/conversation:863bb99f-e
 storage_version_token = "1788916120570688"
 content_type = "text/markdown"
 source_uri = "file://deliverables/sceneit-architecture-review.md"
+
+[[outputs]]
+id = "h2HTDM9b-FvuCpv3MBDAF"
+uri = "file://artifacts/api-server/docs/customer-journey-evidence/report.html"
+type = "text"
+title = "SceneIt customer journey audit"
+description = "Offline report with the ordered journey scorecard, synthetic screenshots, reproducible checks, four confirmed usability defects, and outstanding external approvals. Local evidence only—not live launch certification."
+logical_id = "37a9f30b-87a9-44b2-afa5-26594dfcc5b9"
+content_hash = "sha256:b334ed3662a0a4a02128a9fe8ad2f8edc3fc5cdb8986166decc773d8656458ee"
+size = 3133739
+mtime_ms = 1788970485561
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:e6215cfb-e87c-4088-a123-9a3068aecef4/37a9f30b-87a9-44b2-afa5-26594dfcc5b9/077b2bb6-360c-4fc9-bd0c-4b68b1fde221"
+storage_version_token = "1788970521160063"
+content_type = "text/html"

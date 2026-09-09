@@ -94,7 +94,7 @@ async function interceptedApp(page: Page, initial: SessionOptions = {}) {
   const requests: Request[] = [];
   const unhandled: string[] = [];
 
-  await page.route('**/*', async route => {
+  await page.context().route('**/*', async route => {
     const request = route.request();
     const url = new URL(request.url());
     const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(request.method());
@@ -201,7 +201,11 @@ async function interceptedApp(page: Page, initial: SessionOptions = {}) {
       return route.abort('blockedbyclient');
     }
 
-    if (!url.pathname.startsWith('/api/')) return route.continue();
+    if (!url.pathname.startsWith('/api/')) {
+      if (['GET', 'HEAD', 'OPTIONS'].includes(request.method())) return route.continue();
+      unhandled.push(`${request.method()} ${url.pathname}`);
+      return route.abort('blockedbyclient');
+    }
     if (url.pathname === '/api/auth/session' || url.pathname === '/api/auth/user') {
       return reply(route, session(current));
     }
@@ -374,7 +378,7 @@ test('missing Firebase configuration and rollout off preserve Replit entry', asy
   await expect(page.getByRole('button', { name: 'Continue with Replit' })).toBeVisible();
   await expect(page.getByLabel('Email')).toHaveCount(0);
 
-  await page.unroute('**/*');
+  await page.context().unroute('**/*');
   await interceptedApp(page, { configured: true, rollout: false });
   await page.goto('/auth');
   await expect(page.getByRole('button', { name: /Replit/ })).toBeVisible();
@@ -390,7 +394,7 @@ test('signup and resend use only intercepted Firebase endpoints and remain unver
 
   await expect(page.getByTestId('status-verification')).toContainText('new.user@example.test');
   await page.getByRole('button', { name: 'Resend verification email' }).click();
-  await expect(page.getByText('A new verification link has been sent.')).toBeVisible();
+  await expect(page.getByText('A new verification link has been sent.').first()).toBeVisible();
 
   expect(fixture.requests.filter(request =>
     new URL(request.url()).hostname === 'identitytoolkit.googleapis.com'
@@ -452,6 +456,38 @@ test('verification and reset action links have success and expired-link recovery
     await expect(page.getByRole('button', { name: /Sign in to resend|Request a new reset link|Request a new link/i })).toBeVisible();
   }
   expect(fixture.unhandled).toEqual([]);
+});
+
+test('PRODUCT-AUTH-RECOVERY-001 expired password reset recovery opens reset mode', async ({ page }, testInfo) => {
+  await interceptedApp(page);
+  await page.goto('/auth/action?mode=resetPassword&oobCode=expired-fixture');
+  await page.getByRole('button', { name: /Request a new reset link|Request a new link/i }).click();
+  await page.screenshot({ path: testInfo.outputPath('PRODUCT-AUTH-RECOVERY-001.png'), fullPage: true });
+  test.fail(true, 'PRODUCT-AUTH-RECOVERY-001: recovery currently opens the signup form');
+  await expect(page).toHaveURL(/\/auth\?mode=signin/);
+  await expect(page.getByRole('button', { name: 'Forgot password?' })).toBeVisible();
+});
+
+test('PRODUCT-AUTH-RETURN-002 verification success preserves protected return intent', async ({ page }, testInfo) => {
+  await interceptedApp(page);
+  await page.goto('/auth/action?mode=verifyEmail&oobCode=valid-fixture&returnTo=%2Fimports%2Fprivate-intent');
+  await page.getByRole('button', { name: 'Sign in to continue' }).click();
+  await page.screenshot({ path: testInfo.outputPath('PRODUCT-AUTH-RETURN-002.png'), fullPage: true });
+  test.fail(true, 'PRODUCT-AUTH-RETURN-002: the action-link success route drops returnTo');
+  await expect(page).toHaveURL(/returnTo=%2Fimports%2Fprivate-intent/);
+});
+
+test('signup controls remain keyboard reachable in a narrow layout', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await interceptedApp(page);
+  await page.goto('/auth');
+  await page.getByLabel('Email').focus();
+  await page.keyboard.type('keyboard@example.test');
+  await page.keyboard.press('Tab');
+  await page.keyboard.type('correct horse battery staple');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Create account' })).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test('an unverified email account cannot start processing', async ({ page }) => {
@@ -555,8 +591,14 @@ test('logout and account switch clear private cache without implicit mutations',
 
   await page.getByRole('button', { name: /Log out|Sign out/ }).click();
   await expect(page.getByRole('heading', { name: 'Find scenes in your videos.' })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('sceneit:selected-result'))).toBeNull();
-  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('pendingImportLink'))).toBeNull();
+  await expect.poll(async () => {
+    try { return await page.evaluate(() => localStorage.getItem('sceneit:selected-result')); }
+    catch { return 'navigation-in-progress'; }
+  }).toBeNull();
+  await expect.poll(async () => {
+    try { return await page.evaluate(() => sessionStorage.getItem('pendingImportLink')); }
+    catch { return 'navigation-in-progress'; }
+  }).toBeNull();
 
   fixture.setSession({
     user: { id: 'account-b', email: 'second@example.test', emailVerified: true },

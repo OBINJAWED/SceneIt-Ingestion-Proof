@@ -18,6 +18,8 @@ createdb -U sceneit_fixture -h "$WORK" -p 55459 sceneit_test_runtime
 createdb -U sceneit_fixture -h "$WORK" -p 55459 sceneit_test_transactions
 unset TWELVE_LABS_API_KEY
 unset STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET
+# Never inherit the opt-in App Storage mutation smoke test in a local audit.
+unset SCENEIT_LIVE_STORAGE_TEST
 export SCENEIT_BILLING_ENABLED=false
 unset FIREBASE_PROJECT_ID FIREBASE_WEB_API_KEY FIREBASE_AUTH_DOMAIN FIREBASE_WEB_APP_ID
 unset FIREBASE_SERVICE_ACCOUNT_JSON FIREBASE_TRIAL_HASH_SECRET FIREBASE_AUTH_EMULATOR_HOST

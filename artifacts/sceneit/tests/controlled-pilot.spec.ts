@@ -98,6 +98,17 @@ async function fixtureApi(
 ) {
   let signedOut = false;
   const serveProof = options.onProof ?? ((route: Route) => json(route, { ...proof }));
+  await page.context().route('**/*', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const local = url.hostname === '127.0.0.1';
+    const read = ['GET', 'HEAD', 'OPTIONS'].includes(request.method());
+    if (local && (read || url.pathname.startsWith('/api/'))) return route.continue();
+    if (url.hostname === 'www.youtube.com' || url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
+      return route.abort('blockedbyclient');
+    }
+    return route.abort('blockedbyclient');
+  });
   await page.route('https://www.youtube.com/**', route => route.abort());
   await page.route('**/api/**', async route => {
     const request = route.request();
@@ -290,6 +301,42 @@ test('shows uncertain paid search failure without automatic retry', async ({ pag
   expect(paidSearches).toBe(1);
   expect(proofReads).toBeGreaterThanOrEqual(2);
   expect(operationReads).toBeGreaterThanOrEqual(2);
+});
+
+test('empty and failed searches remain single explicit submissions', async ({ page }) => {
+  let submissions = 0;
+  await fixtureApi(page, {
+    onSearch: route => {
+      submissions += 1;
+      if (submissions === 1) {
+        return json(route, {
+          ...savedSearch,
+          id: '31a384d4-8bd5-4353-a866-635171f81c6c',
+          query: 'fixture empty result',
+          matches: [],
+        });
+      }
+      return json(route, {
+        error: 'Provider rejected fixture request',
+        code: 'PROVIDER_FAILED',
+        state: 'service_unavailable',
+        retryable: false,
+        retryAfterSeconds: null,
+      }, 503);
+    },
+  });
+  await page.goto('/demo');
+  const search = page.getByRole('searchbox', { name: 'Describe a scene or event' });
+  await search.fill('fixture empty result');
+  await page.getByRole('button', { name: 'Search scenes' }).click();
+  await expect(page.getByText('No matches found')).toBeVisible();
+  expect(submissions).toBe(1);
+
+  await search.fill('fixture explicit failure');
+  await page.getByRole('button', { name: 'Search scenes' }).click();
+  await expect(page.getByText('The proof service is unavailable. Refresh status before trying again.')).toBeVisible();
+  await page.waitForTimeout(1_000);
+  expect(submissions).toBe(2);
 });
 
 test('logout clears SceneIt storage and selected proof UI', async ({ page }) => {

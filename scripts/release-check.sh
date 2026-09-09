@@ -12,6 +12,10 @@ if [[ "${SCENEIT_DISABLE_PROVIDER_NETWORK:-}" != "1" || -n "${TWELVE_LABS_API_KE
   echo "Release checks require disabled provider networking and no provider credential." >&2
   exit 1
 fi
+if [[ "${SCENEIT_LIVE_STORAGE_TEST:-}" == "1" ]]; then
+  echo "Provider-free release checks cannot enable the live App Storage smoke test." >&2
+  exit 1
+fi
 
 for tool in node pnpm uv python3 ffmpeg ffprobe pg_dump pg_restore; do
   command -v "$tool" >/dev/null || {
