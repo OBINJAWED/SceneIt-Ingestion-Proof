@@ -80,6 +80,9 @@ class CommercialContractTests(unittest.TestCase):
             "enabled": True,
             "environment": "test",
             "membership": "active",
+            "effectiveTier": "reviewed_core",
+            "cadence": "monthly",
+            "currency": "usd",
             "paidThrough": "2026-06-30T12:00:00Z",
             "cancelAtPeriodEnd": False,
             "usage": {
@@ -96,6 +99,10 @@ class CommercialContractTests(unittest.TestCase):
                 "storage": metric,
                 "workStopped": False,
             },
+            "pendingChange": None,
+            "paymentProblem": None,
+            "managementEligible": True,
+            "offers": [],
         }
         billing = {
             "enabled": True,
@@ -117,6 +124,61 @@ class CommercialContractTests(unittest.TestCase):
         self.assertEqual(7, config.get_json()["ownerImportLimit"])
         self.assertEqual(11, config.get_json()["ownerSearchLimit"])
         self.assert_contract_response("GET", "/imports/config", config)
+
+    def test_tiered_billing_response_surface_is_contract_safe(self):
+        tier_limits = {
+            "imports": 12, "upload_attempts": 12,
+            "analysis_seconds": 3600, "searches": 200,
+            "media_bytes": 5_000_000_000, "frames": 500,
+            "storage_bytes": 5_000_000_000,
+        }
+        payload = {
+            "enabled": True, "environment": "test", "membership": "active",
+            "effectiveTier": "reviewed_core", "cadence": "monthly",
+            "currency": "usd", "paidThrough": "2026-06-30T12:00:00Z",
+            "cancelAtPeriodEnd": False, "usage": None,
+            "pendingChange": {
+                "changeId": "11111111-1111-4111-8111-111111111111",
+                "tier": "reviewed_plus", "cadence": "yearly",
+                "currency": "usd", "effectiveAt": "2026-06-30T12:00:00Z",
+                "state": "scheduled",
+            },
+            "paymentProblem": {
+                "code": "expired_card", "state": "open",
+                "invoiceId": "in_safe", "tier": "reviewed_core",
+                "cadence": "monthly", "currency": "usd", "amountDue": 1900,
+                "nextAction": "manage_billing",
+                "occurredAt": "2026-06-01T12:00:00Z", "resolvedAt": None,
+            },
+            "managementEligible": True,
+            "offers": [{
+                "tier": "reviewed_plus", "name": "Reviewed Plus", "rank": 20,
+                "cadence": "monthly", "currency": "usd", "unitAmount": 2400,
+                "taxBehavior": "exclusive", "capabilities": ["imports", "searches"],
+                "limits": tier_limits,
+            }],
+        }
+        self.assert_contract_payload("GET", "/billing/status", 200, payload)
+        self.assert_contract_payload("POST", "/billing/checkout", 200, {
+            "operationId": "22222222-2222-4222-8222-222222222222",
+            "url": "https://billing.example.test/checkout",
+            "expiresAt": "2026-06-01T12:30:00Z",
+        })
+        self.assert_contract_payload("POST", "/billing/change/preview", 200, {
+            "previewId": "33333333-3333-4333-8333-333333333333",
+            "kind": "upgrade", "effectiveAt": None,
+            "expiresAt": "2026-06-01T12:30:00Z", "currency": "usd",
+            "subtotal": 400, "tax": 32, "total": 432,
+        })
+        self.assert_contract_payload("POST", "/billing/change/confirm", 200, {
+            "changeId": "44444444-4444-4444-8444-444444444444",
+            "state": "payment_pending", "effectiveAt": None,
+            "hostedAction": None,
+        })
+        self.assert_contract_payload("POST", "/billing/change/withdraw", 200, {
+            "changeId": "11111111-1111-4111-8111-111111111111",
+            "state": "withdrawn",
+        })
 
     def test_enabled_billing_keeps_firebase_config_on_lifetime_limits(self):
         firebase_session = {

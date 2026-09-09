@@ -7,7 +7,7 @@
  */
 
 export interface BillingHostedSession {
+  operationId: string;
   url: string;
-  /** @nullable */
-  expiresAt: Date | null;
+  expiresAt: Date;
 }

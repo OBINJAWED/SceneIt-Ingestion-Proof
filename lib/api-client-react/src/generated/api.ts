@@ -22,9 +22,16 @@ import type {
 import type {
   AuthChallenge,
   AuthState,
+  BillingChangeConfirmation,
+  BillingChangePreview,
+  BillingChangeResult,
+  BillingChangeSelection,
+  BillingChangeWithdrawal,
+  BillingChangeWithdrawalResult,
   BillingCheckout,
   BillingFailureResponse,
   BillingHostedSession,
+  BillingOperationInput,
   BillingStatus,
   BillingWebhookAck,
   BillingWebhookEvent,
@@ -537,14 +544,14 @@ export const getCreateBillingPortalUrl = () => {
  * Remains available to an authenticated billing customer without pilot admission or active membership.
  * @summary Create an owner-scoped Stripe-hosted customer portal
  */
-export const createBillingPortal = async (emptyRequest: EmptyRequest, options?: Parameters<typeof customFetch>[1]): Promise<BillingHostedSession> => {
+export const createBillingPortal = async (billingOperationInput: BillingOperationInput, options?: Parameters<typeof customFetch>[1]): Promise<BillingHostedSession> => {
 
   return customFetch<BillingHostedSession>(getCreateBillingPortalUrl(),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(emptyRequest)
+    body: JSON.stringify(billingOperationInput)
   }
 );}
 
@@ -553,8 +560,8 @@ export const createBillingPortal = async (emptyRequest: EmptyRequest, options?: 
 
 
 export const getCreateBillingPortalMutationOptions = <TError = ErrorType<BillingFailureResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<EmptyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<EmptyRequest>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<BillingOperationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<BillingOperationInput>}, TContext> => {
 
 const mutationKey = ['createBillingPortal'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -566,7 +573,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBillingPortal>>, {data: BodyType<EmptyRequest>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBillingPortal>>, {data: BodyType<BillingOperationInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  createBillingPortal(data,requestOptions)
@@ -580,21 +587,236 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type CreateBillingPortalMutationResult = NonNullable<Awaited<ReturnType<typeof createBillingPortal>>>
-    export type CreateBillingPortalMutationBody = BodyType<EmptyRequest>
+    export type CreateBillingPortalMutationBody = BodyType<BillingOperationInput>
     export type CreateBillingPortalMutationError = ErrorType<BillingFailureResponse>
 
     /**
  * @summary Create an owner-scoped Stripe-hosted customer portal
  */
 export const useCreateBillingPortal = <TError = ErrorType<BillingFailureResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<EmptyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<BillingOperationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createBillingPortal>>,
         TError,
-        {data: BodyType<EmptyRequest>},
+        {data: BodyType<BillingOperationInput>},
         TContext
       > => {
       return useMutation(getCreateBillingPortalMutationOptions(options));
+    }
+
+export const getPreviewBillingChangeUrl = () => {
+
+
+
+
+  return `/api/billing/change/preview`
+}
+
+/**
+ * Returns an expiring authoritative money and tax preview. Existing subscriptions cannot change currency.
+ * @summary Preview an allowlisted tier or cadence change
+ */
+export const previewBillingChange = async (billingChangeSelection: BillingChangeSelection, options?: Parameters<typeof customFetch>[1]): Promise<BillingChangePreview> => {
+
+  return customFetch<BillingChangePreview>(getPreviewBillingChangeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingChangeSelection)
+  }
+);}
+
+
+
+
+
+export const getPreviewBillingChangeMutationOptions = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewBillingChange>>, TError,{data: BodyType<BillingChangeSelection>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewBillingChange>>, TError,{data: BodyType<BillingChangeSelection>}, TContext> => {
+
+const mutationKey = ['previewBillingChange'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewBillingChange>>, {data: BodyType<BillingChangeSelection>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewBillingChange(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewBillingChangeMutationResult = NonNullable<Awaited<ReturnType<typeof previewBillingChange>>>
+    export type PreviewBillingChangeMutationBody = BodyType<BillingChangeSelection>
+    export type PreviewBillingChangeMutationError = ErrorType<BillingFailureResponse>
+
+    /**
+ * @summary Preview an allowlisted tier or cadence change
+ */
+export const usePreviewBillingChange = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewBillingChange>>, TError,{data: BodyType<BillingChangeSelection>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof previewBillingChange>>,
+        TError,
+        {data: BodyType<BillingChangeSelection>},
+        TContext
+      > => {
+      return useMutation(getPreviewBillingChangeMutationOptions(options));
+    }
+
+export const getConfirmBillingChangeUrl = () => {
+
+
+
+
+  return `/api/billing/change/confirm`
+}
+
+/**
+ * Paid upgrades become effective only after verified payment. Scheduled changes remain pending until renewal.
+ * @summary Confirm an unexpired billing change preview
+ */
+export const confirmBillingChange = async (billingChangeConfirmation: BillingChangeConfirmation, options?: Parameters<typeof customFetch>[1]): Promise<BillingChangeResult> => {
+
+  return customFetch<BillingChangeResult>(getConfirmBillingChangeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingChangeConfirmation)
+  }
+);}
+
+
+
+
+
+export const getConfirmBillingChangeMutationOptions = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmBillingChange>>, TError,{data: BodyType<BillingChangeConfirmation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmBillingChange>>, TError,{data: BodyType<BillingChangeConfirmation>}, TContext> => {
+
+const mutationKey = ['confirmBillingChange'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmBillingChange>>, {data: BodyType<BillingChangeConfirmation>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  confirmBillingChange(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmBillingChangeMutationResult = NonNullable<Awaited<ReturnType<typeof confirmBillingChange>>>
+    export type ConfirmBillingChangeMutationBody = BodyType<BillingChangeConfirmation>
+    export type ConfirmBillingChangeMutationError = ErrorType<BillingFailureResponse>
+
+    /**
+ * @summary Confirm an unexpired billing change preview
+ */
+export const useConfirmBillingChange = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmBillingChange>>, TError,{data: BodyType<BillingChangeConfirmation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmBillingChange>>,
+        TError,
+        {data: BodyType<BillingChangeConfirmation>},
+        TContext
+      > => {
+      return useMutation(getConfirmBillingChangeMutationOptions(options));
+    }
+
+export const getWithdrawBillingChangeUrl = () => {
+
+
+
+
+  return `/api/billing/change/withdraw`
+}
+
+/**
+ * @summary Withdraw a pending next-renewal billing change
+ */
+export const withdrawBillingChange = async (billingChangeWithdrawal: BillingChangeWithdrawal, options?: Parameters<typeof customFetch>[1]): Promise<BillingChangeWithdrawalResult> => {
+
+  return customFetch<BillingChangeWithdrawalResult>(getWithdrawBillingChangeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingChangeWithdrawal)
+  }
+);}
+
+
+
+
+
+export const getWithdrawBillingChangeMutationOptions = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof withdrawBillingChange>>, TError,{data: BodyType<BillingChangeWithdrawal>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof withdrawBillingChange>>, TError,{data: BodyType<BillingChangeWithdrawal>}, TContext> => {
+
+const mutationKey = ['withdrawBillingChange'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof withdrawBillingChange>>, {data: BodyType<BillingChangeWithdrawal>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  withdrawBillingChange(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type WithdrawBillingChangeMutationResult = NonNullable<Awaited<ReturnType<typeof withdrawBillingChange>>>
+    export type WithdrawBillingChangeMutationBody = BodyType<BillingChangeWithdrawal>
+    export type WithdrawBillingChangeMutationError = ErrorType<BillingFailureResponse>
+
+    /**
+ * @summary Withdraw a pending next-renewal billing change
+ */
+export const useWithdrawBillingChange = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof withdrawBillingChange>>, TError,{data: BodyType<BillingChangeWithdrawal>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof withdrawBillingChange>>,
+        TError,
+        {data: BodyType<BillingChangeWithdrawal>},
+        TContext
+      > => {
+      return useMutation(getWithdrawBillingChangeMutationOptions(options));
     }
 
 export const getReceiveBillingWebhookUrl = () => {

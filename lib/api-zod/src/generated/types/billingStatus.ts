@@ -5,6 +5,11 @@
  * SceneIt one-video ingestion and semantic-search proof.
  * OpenAPI spec version: 0.1.0
  */
+import type { BillingCadence } from './billingCadence';
+import type { BillingOffer } from './billingOffer';
+import type { BillingOperationState } from './billingOperationState';
+import type { BillingPaymentProblem } from './billingPaymentProblem';
+import type { BillingPendingChange } from './billingPendingChange';
 import type { BillingStatusEnvironment } from './billingStatusEnvironment';
 import type { BillingStatusMembership } from './billingStatusMembership';
 import type { BillingUsage } from './billingUsage';
@@ -15,7 +20,24 @@ export interface BillingStatus {
   environment: BillingStatusEnvironment;
   membership: BillingStatusMembership;
   /** @nullable */
+  effectiveTier: string | null;
+  cadence: BillingCadence | null;
+  /**
+     * @nullable
+     * @pattern ^[a-z]{3}$
+     */
+  currency: string | null;
+  /** @nullable */
   paidThrough: Date | null;
   cancelAtPeriodEnd: boolean;
   usage: BillingUsage | null;
+  pendingChange: BillingPendingChange | null;
+  paymentProblem: BillingPaymentProblem | null;
+  managementEligible: boolean;
+  offers: BillingOffer[];
+  /**
+     * Bounded owner-scoped operation outcomes used only to reconcile previously submitted idempotency keys.
+     * @maxItems 50
+     */
+  operationStates?: BillingOperationState[];
 }

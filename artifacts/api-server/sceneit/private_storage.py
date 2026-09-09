@@ -328,6 +328,21 @@ def open_private(
     baseline hosting, failed network handshakes, or infrastructure egress that
     occurs outside this application boundary.
     """
+    from .billing_config import billing_settings
+    settings = billing_settings()
+    commercial = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+    if commercial:
+        if not operation_id:
+            raise ValueError("Commercial private reads require an operation id")
+        from .db import connection
+        from .quota import check_work
+        # Admission precedes even the private object metadata request. Exact
+        # response bytes are reserved below once size and Range are validated.
+        with connection() as conn:
+            check_work(
+                conn, owner_id, require_membership=require_membership,
+                capabilities=("media",),
+            )
     info = object_info(path)
     if generation is not None and int(generation) != info["generation"]:
         from .http import problem_response
@@ -354,13 +369,7 @@ def open_private(
     length = max(0, end - start + 1)
     if length > DEFAULT_MAX_BYTES:
         raise ValueError("Object response exceeds download limit")
-    from .billing_config import billing_settings
-    settings = billing_settings()
-    commercial = settings["enabled"] if isinstance(settings, dict) else settings.enabled
     if commercial:
-        if not operation_id:
-            raise ValueError("Commercial private reads require an operation id")
-        from .db import connection
         from .quota import reserve
         # Metadata/range validation happens first, but no object bytes are
         # opened until this exact response reservation commits.

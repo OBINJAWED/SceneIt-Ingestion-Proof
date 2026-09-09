@@ -195,6 +195,7 @@ export const ExchangeFirebaseSessionResponse = zod.object({
  * Returns private, owner-scoped billing state. The response must not be cached.
  * @summary Read the current account's membership and usage
  */
+export const getBillingStatusResponseCurrencyRegExp = new RegExp('^[a-z]{3}$');
 export const getBillingStatusResponseUsageOneMetricsImportsLimitMin = 0;
 
 export const getBillingStatusResponseUsageOneMetricsImportsUsedMin = 0;
@@ -237,12 +238,33 @@ export const getBillingStatusResponseUsageOneStorageUsedMin = 0;
 
 export const getBillingStatusResponseUsageOneStorageRemainingMin = 0;
 
+export const getBillingStatusResponsePendingChangeOneCurrencyRegExp = new RegExp('^[a-z]{3}$');
+export const getBillingStatusResponsePaymentProblemOneCurrencyRegExp = new RegExp('^[a-z]{3}$');
+export const getBillingStatusResponsePaymentProblemOneAmountDueMin = 0;
+
+export const getBillingStatusResponseOffersItemRankMin = 0;
+export const getBillingStatusResponseOffersItemRankMax = 1000;
+
+export const getBillingStatusResponseOffersItemCurrencyRegExp = new RegExp('^[a-z]{3}$');
+
+
+
+
+
+
+
+
+export const getBillingStatusResponseOperationStatesMax = 50;
+
 
 
 export const GetBillingStatusResponse = zod.object({
   "enabled": zod.boolean(),
   "environment": zod.union([zod.literal('test'),zod.literal('live'),zod.literal(null)]).nullable(),
   "membership": zod.enum(['disabled', 'active', 'inactive']),
+  "effectiveTier": zod.string().nullable(),
+  "cadence": zod.union([zod.enum(['monthly', 'yearly']),zod.null()]),
+  "currency": zod.string().regex(getBillingStatusResponseCurrencyRegExp).nullable(),
   "paidThrough": zod.coerce.date().nullable(),
   "cancelAtPeriodEnd": zod.boolean(),
   "usage": zod.union([zod.object({
@@ -286,7 +308,52 @@ export const GetBillingStatusResponse = zod.object({
   "remaining": zod.number().int().min(getBillingStatusResponseUsageOneStorageRemainingMin)
 }),
   "workStopped": zod.boolean()
-}),zod.null()])
+}),zod.null()]),
+  "pendingChange": zod.union([zod.object({
+  "changeId": zod.string().uuid(),
+  "tier": zod.string(),
+  "cadence": zod.enum(['monthly', 'yearly']),
+  "currency": zod.string().regex(getBillingStatusResponsePendingChangeOneCurrencyRegExp),
+  "effectiveAt": zod.coerce.date(),
+  "state": zod.enum(['confirming', 'payment_pending', 'scheduled', 'uncertain'])
+}),zod.null()]),
+  "paymentProblem": zod.union([zod.object({
+  "code": zod.enum(['payment_failed', 'expired_card', 'payment_authentication_required']),
+  "state": zod.enum(['open', 'resolved']),
+  "invoiceId": zod.string().nullable(),
+  "tier": zod.string().nullable(),
+  "cadence": zod.union([zod.enum(['monthly', 'yearly']),zod.null()]),
+  "currency": zod.string().regex(getBillingStatusResponsePaymentProblemOneCurrencyRegExp).nullable(),
+  "amountDue": zod.number().int().min(getBillingStatusResponsePaymentProblemOneAmountDueMin).nullable(),
+  "nextAction": zod.enum(['manage_billing', 'authenticate_payment']),
+  "occurredAt": zod.coerce.date(),
+  "resolvedAt": zod.coerce.date().nullable()
+}),zod.null()]),
+  "managementEligible": zod.boolean(),
+  "offers": zod.array(zod.object({
+  "tier": zod.string(),
+  "name": zod.string(),
+  "rank": zod.number().int().min(getBillingStatusResponseOffersItemRankMin).max(getBillingStatusResponseOffersItemRankMax),
+  "cadence": zod.enum(['monthly', 'yearly']),
+  "currency": zod.string().regex(getBillingStatusResponseOffersItemCurrencyRegExp),
+  "capabilities": zod.array(zod.string()),
+  "limits": zod.object({
+  "imports": zod.number().int().min(1),
+  "upload_attempts": zod.number().int().min(1),
+  "analysis_seconds": zod.number().int().min(1),
+  "searches": zod.number().int().min(1),
+  "media_bytes": zod.number().int().min(1),
+  "frames": zod.number().int().min(1),
+  "storage_bytes": zod.number().int().min(1)
+}),
+  "unitAmount": zod.number().int().min(1),
+  "taxBehavior": zod.enum(['inclusive', 'exclusive'])
+})),
+  "operationStates": zod.array(zod.object({
+  "idempotencyKey": zod.string().uuid(),
+  "kind": zod.enum(['checkout', 'portal', 'upgrade', 'schedule', 'withdraw']),
+  "state": zod.enum(['creating', 'created', 'confirming', 'confirmed', 'scheduled', 'payment_pending', 'completed', 'uncertain', 'withdrawn', 'expired', 'failed'])
+})).max(getBillingStatusResponseOperationStatesMax).optional().describe('Bounded owner-scoped operation outcomes used only to reconcile previously submitted idempotency keys.')
 })
 
 
@@ -294,14 +361,22 @@ export const GetBillingStatusResponse = zod.object({
  * Requires pilot admission. Price, customer, ownership, and return destinations are derived by the server.
  * @summary Create an allowlisted Stripe-hosted subscription checkout
  */
+export const createBillingCheckoutBodyTierMax = 64;
+
+export const createBillingCheckoutBodyCurrencyRegExp = new RegExp('^[a-z]{3}$');
+
+
 export const CreateBillingCheckoutBody = zod.object({
-  "plan": zod.enum(['monthly', 'yearly']),
+  "tier": zod.string().min(1).max(createBillingCheckoutBodyTierMax),
+  "cadence": zod.enum(['monthly', 'yearly']),
+  "currency": zod.string().regex(createBillingCheckoutBodyCurrencyRegExp),
   "idempotencyKey": zod.string().uuid()
 })
 
 export const CreateBillingCheckoutResponse = zod.object({
+  "operationId": zod.string().uuid(),
   "url": zod.string().url(),
-  "expiresAt": zod.coerce.date().nullable()
+  "expiresAt": zod.coerce.date()
 })
 
 
@@ -310,12 +385,83 @@ export const CreateBillingCheckoutResponse = zod.object({
  * @summary Create an owner-scoped Stripe-hosted customer portal
  */
 export const CreateBillingPortalBody = zod.object({
-
+  "action": zod.enum(['manage', 'cancel']),
+  "idempotencyKey": zod.string().uuid()
 })
 
 export const CreateBillingPortalResponse = zod.object({
+  "operationId": zod.string().uuid(),
   "url": zod.string().url(),
-  "expiresAt": zod.coerce.date().nullable()
+  "expiresAt": zod.coerce.date()
+})
+
+
+/**
+ * Returns an expiring authoritative money and tax preview. Existing subscriptions cannot change currency.
+ * @summary Preview an allowlisted tier or cadence change
+ */
+export const previewBillingChangeBodyTierMax = 64;
+
+export const previewBillingChangeBodyCurrencyRegExp = new RegExp('^[a-z]{3}$');
+
+
+export const PreviewBillingChangeBody = zod.object({
+  "tier": zod.string().min(1).max(previewBillingChangeBodyTierMax),
+  "cadence": zod.enum(['monthly', 'yearly']),
+  "currency": zod.string().regex(previewBillingChangeBodyCurrencyRegExp),
+  "idempotencyKey": zod.string().uuid()
+})
+
+export const previewBillingChangeResponseCurrencyRegExp = new RegExp('^[a-z]{3}$');
+export const previewBillingChangeResponseTaxMin = 0;
+
+export const previewBillingChangeResponseTotalMin = 0;
+
+
+
+export const PreviewBillingChangeResponse = zod.object({
+  "previewId": zod.string().uuid(),
+  "kind": zod.enum(['upgrade', 'scheduled']),
+  "effectiveAt": zod.coerce.date().nullable(),
+  "expiresAt": zod.coerce.date(),
+  "currency": zod.string().regex(previewBillingChangeResponseCurrencyRegExp),
+  "subtotal": zod.number().int(),
+  "tax": zod.number().int().min(previewBillingChangeResponseTaxMin),
+  "total": zod.number().int().min(previewBillingChangeResponseTotalMin)
+})
+
+
+/**
+ * Paid upgrades become effective only after verified payment. Scheduled changes remain pending until renewal.
+ * @summary Confirm an unexpired billing change preview
+ */
+export const ConfirmBillingChangeBody = zod.object({
+  "previewId": zod.string().uuid(),
+  "idempotencyKey": zod.string().uuid()
+})
+
+export const ConfirmBillingChangeResponse = zod.object({
+  "changeId": zod.string().uuid(),
+  "state": zod.enum(['scheduled', 'payment_pending', 'effective', 'outcome_unknown']),
+  "effectiveAt": zod.coerce.date().nullable(),
+  "hostedAction": zod.union([zod.object({
+  "url": zod.string().url(),
+  "expiresAt": zod.coerce.date()
+}),zod.null()])
+})
+
+
+/**
+ * @summary Withdraw a pending next-renewal billing change
+ */
+export const WithdrawBillingChangeBody = zod.object({
+  "changeId": zod.string().uuid(),
+  "idempotencyKey": zod.string().uuid()
+})
+
+export const WithdrawBillingChangeResponse = zod.object({
+  "changeId": zod.string().uuid(),
+  "state": zod.enum(['withdrawn'])
 })
 
 

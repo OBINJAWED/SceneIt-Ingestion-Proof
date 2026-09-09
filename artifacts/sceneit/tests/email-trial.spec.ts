@@ -692,7 +692,10 @@ test('logout and account switch clear private cache without implicit mutations',
     sessionStorage.setItem('pendingImportLink', 'https://vimeo.com/private-account-a');
   });
 
-  await page.getByRole('button', { name: /Log out|Sign out/ }).click();
+  await Promise.all([
+    page.waitForEvent('framenavigated', frame => frame === page.mainFrame()),
+    page.getByRole('button', { name: /Log out|Sign out/ }).click(),
+  ]);
   await expect(page.getByRole('heading', { name: 'Find scenes in your videos.' })).toBeVisible();
   await expect.poll(async () => {
     try { return await page.evaluate(() => localStorage.getItem('sceneit:selected-result')); }

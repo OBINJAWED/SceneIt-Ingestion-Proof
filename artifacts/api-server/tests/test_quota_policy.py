@@ -1,5 +1,6 @@
 """Pure policy fixtures; no credentials, billing or media provider calls."""
 import os
+import json
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import Mock, patch
@@ -15,6 +16,36 @@ from sceneit.quota import (
 
 
 def commercial_environment():
+    limits = {metric: 100 for metric in ALL_METRICS}
+    catalog = {
+        "reviewed": True,
+        "tiers": [
+            {
+                "key": "fixture_basic", "name": "Fixture Basic", "rank": 10,
+                "capabilities": [
+                    "imports", "uploads", "analysis", "searches", "frames", "media",
+                ],
+                "limits": limits,
+            },
+            {
+                "key": "fixture_plus", "name": "Fixture Plus", "rank": 20,
+                "capabilities": [
+                    "imports", "uploads", "analysis", "searches", "frames", "media",
+                ],
+                "limits": {metric: 200 for metric in ALL_METRICS},
+            },
+        ],
+        "offers": [
+            {
+                "tier": tier, "cadence": cadence, "currency": "usd",
+                "priceId": f"price_fixture{tier.title().replace('_', '')}{cadence.title()}",
+                "unitAmount": amount, "taxBehavior": "exclusive",
+                "taxCode": "txcd_10000000", "saleEnabled": True,
+            }
+            for tier, amount in (("fixture_basic", 1000), ("fixture_plus", 2000))
+            for cadence in ("monthly", "yearly")
+        ],
+    }
     result = {
         "SCENEIT_BILLING_ENABLED": "true",
         "SCENEIT_BILLING_ENVIRONMENT": "test",
@@ -24,6 +55,7 @@ def commercial_environment():
         "SCENEIT_STRIPE_PORTAL_CONFIGURATION": "bpc_fixture",
         "STRIPE_SECRET_KEY": "sk_test_fixture_only",
         "STRIPE_WEBHOOK_SECRET": "whsec_fixture_only_signing_secret",
+        "SCENEIT_BILLING_CATALOG": json.dumps(catalog),
     }
     for prefix in ("MEMBER", "APP"):
         result.update({f"SCENEIT_{prefix}_{metric.upper()}": "100"
@@ -78,7 +110,8 @@ class QuotaPolicyTests(unittest.TestCase):
             reset_billing_settings()
             check_work(conn, "firebase:private-owner")
         account.assert_called_once_with(
-            conn, "firebase:private-owner", now, require_membership=False
+            conn, "firebase:private-owner", now, require_membership=False,
+            capabilities=(),
         )
 
     def test_reserve_keeps_firebase_trial_out_of_owner_paid_window(self):
@@ -100,7 +133,8 @@ class QuotaPolicyTests(unittest.TestCase):
                 {"media_bytes": 10},
             )
         work.assert_called_once_with(
-            conn, "firebase:private-owner", require_membership=False
+            conn, "firebase:private-owner", require_membership=False,
+            capabilities={"media"},
         )
         reservation = [
             call for call in conn.execute.call_args_list
@@ -120,7 +154,7 @@ class QuotaPolicyTests(unittest.TestCase):
             for key, value in (
                 ("SCENEIT_MEMBER_SEARCHES", "0"), ("SCENEIT_APP_MEDIA_BYTES", "unlimited"),
                 ("SCENEIT_MEMBER_FRAMES", "-1"), ("SCENEIT_BILLING_ENVIRONMENT", "live"),
-                ("SCENEIT_STRIPE_PRICE_YEARLY", "price_fixtureMonth"),
+                ("SCENEIT_BILLING_CATALOG", "{}"),
                 ("SCENEIT_BILLING_RETURN_URL", "https://user:password@fixture.invalid/"),
                 ("SCENEIT_BILLING_RETURN_URL", "https://fixture.invalid/?next=evil"),
                 ("STRIPE_SECRET_KEY", "sk_live_fixture_only"),

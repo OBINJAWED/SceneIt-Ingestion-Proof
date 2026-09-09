@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type BillingCheckoutPlan = typeof BillingCheckoutPlan[keyof typeof BillingCheckoutPlan];
+export type BillingCadence = typeof BillingCadence[keyof typeof BillingCadence];
 
 
-export const BillingCheckoutPlan = {
+export const BillingCadence = {
   monthly: 'monthly',
   yearly: 'yearly',
 } as const;

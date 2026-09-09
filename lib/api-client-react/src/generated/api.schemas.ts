@@ -130,23 +130,269 @@ export interface FirebaseCredential {
   idToken: string;
 }
 
-export type BillingCheckoutPlan = typeof BillingCheckoutPlan[keyof typeof BillingCheckoutPlan];
+export type BillingCadence = typeof BillingCadence[keyof typeof BillingCadence];
 
 
-export const BillingCheckoutPlan = {
+export const BillingCadence = {
   monthly: 'monthly',
   yearly: 'yearly',
 } as const;
 
 export interface BillingCheckout {
-  plan: BillingCheckoutPlan;
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  tier: string;
+  cadence: BillingCadence;
+  /** @pattern ^[a-z]{3}$ */
+  currency: string;
+  idempotencyKey: string;
+}
+
+export type BillingOperationInputAction = typeof BillingOperationInputAction[keyof typeof BillingOperationInputAction];
+
+
+export const BillingOperationInputAction = {
+  manage: 'manage',
+  cancel: 'cancel',
+} as const;
+
+export interface BillingOperationInput {
+  action: BillingOperationInputAction;
+  idempotencyKey: string;
+}
+
+export interface BillingChangeSelection {
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  tier: string;
+  cadence: BillingCadence;
+  /** @pattern ^[a-z]{3}$ */
+  currency: string;
+  idempotencyKey: string;
+}
+
+export interface BillingChangeConfirmation {
+  previewId: string;
+  idempotencyKey: string;
+}
+
+export interface BillingChangeWithdrawal {
+  changeId: string;
   idempotencyKey: string;
 }
 
 export interface BillingHostedSession {
+  operationId: string;
   url: string;
+  expiresAt: string;
+}
+
+export type BillingOfferTaxBehavior = typeof BillingOfferTaxBehavior[keyof typeof BillingOfferTaxBehavior];
+
+
+export const BillingOfferTaxBehavior = {
+  inclusive: 'inclusive',
+  exclusive: 'exclusive',
+} as const;
+
+export interface BillingTierLimits {
+  /** @minimum 1 */
+  imports: number;
+  /** @minimum 1 */
+  upload_attempts: number;
+  /** @minimum 1 */
+  analysis_seconds: number;
+  /** @minimum 1 */
+  searches: number;
+  /** @minimum 1 */
+  media_bytes: number;
+  /** @minimum 1 */
+  frames: number;
+  /** @minimum 1 */
+  storage_bytes: number;
+}
+
+export interface BillingOffer {
+  tier: string;
+  name: string;
+  /**
+     * @minimum 0
+     * @maximum 1000
+     */
+  rank: number;
+  cadence: BillingCadence;
+  /** @pattern ^[a-z]{3}$ */
+  currency: string;
+  capabilities: string[];
+  limits: BillingTierLimits;
+  /** @minimum 1 */
+  unitAmount: number;
+  taxBehavior: BillingOfferTaxBehavior;
+}
+
+export type BillingPendingChangeState = typeof BillingPendingChangeState[keyof typeof BillingPendingChangeState];
+
+
+export const BillingPendingChangeState = {
+  confirming: 'confirming',
+  payment_pending: 'payment_pending',
+  scheduled: 'scheduled',
+  uncertain: 'uncertain',
+} as const;
+
+export interface BillingPendingChange {
+  changeId: string;
+  tier: string;
+  cadence: BillingCadence;
+  /** @pattern ^[a-z]{3}$ */
+  currency: string;
+  effectiveAt: string;
+  state: BillingPendingChangeState;
+}
+
+export type BillingOperationStateKind = typeof BillingOperationStateKind[keyof typeof BillingOperationStateKind];
+
+
+export const BillingOperationStateKind = {
+  checkout: 'checkout',
+  portal: 'portal',
+  upgrade: 'upgrade',
+  schedule: 'schedule',
+  withdraw: 'withdraw',
+} as const;
+
+export type BillingOperationStateState = typeof BillingOperationStateState[keyof typeof BillingOperationStateState];
+
+
+export const BillingOperationStateState = {
+  creating: 'creating',
+  created: 'created',
+  confirming: 'confirming',
+  confirmed: 'confirmed',
+  scheduled: 'scheduled',
+  payment_pending: 'payment_pending',
+  completed: 'completed',
+  uncertain: 'uncertain',
+  withdrawn: 'withdrawn',
+  expired: 'expired',
+  failed: 'failed',
+} as const;
+
+export interface BillingOperationState {
+  idempotencyKey: string;
+  kind: BillingOperationStateKind;
+  state: BillingOperationStateState;
+}
+
+export type BillingPaymentProblemCode = typeof BillingPaymentProblemCode[keyof typeof BillingPaymentProblemCode];
+
+
+export const BillingPaymentProblemCode = {
+  payment_failed: 'payment_failed',
+  expired_card: 'expired_card',
+  payment_authentication_required: 'payment_authentication_required',
+} as const;
+
+export type BillingPaymentProblemState = typeof BillingPaymentProblemState[keyof typeof BillingPaymentProblemState];
+
+
+export const BillingPaymentProblemState = {
+  open: 'open',
+  resolved: 'resolved',
+} as const;
+
+export type BillingPaymentProblemNextAction = typeof BillingPaymentProblemNextAction[keyof typeof BillingPaymentProblemNextAction];
+
+
+export const BillingPaymentProblemNextAction = {
+  manage_billing: 'manage_billing',
+  authenticate_payment: 'authenticate_payment',
+} as const;
+
+export interface BillingPaymentProblem {
+  code: BillingPaymentProblemCode;
+  state: BillingPaymentProblemState;
   /** @nullable */
-  expiresAt: string | null;
+  invoiceId: string | null;
+  /** @nullable */
+  tier: string | null;
+  cadence: BillingCadence | null;
+  /**
+     * @nullable
+     * @pattern ^[a-z]{3}$
+     */
+  currency: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  amountDue: number | null;
+  nextAction: BillingPaymentProblemNextAction;
+  occurredAt: string;
+  /** @nullable */
+  resolvedAt: string | null;
+}
+
+export type BillingChangePreviewKind = typeof BillingChangePreviewKind[keyof typeof BillingChangePreviewKind];
+
+
+export const BillingChangePreviewKind = {
+  upgrade: 'upgrade',
+  scheduled: 'scheduled',
+} as const;
+
+export interface BillingChangePreview {
+  previewId: string;
+  kind: BillingChangePreviewKind;
+  /** @nullable */
+  effectiveAt: string | null;
+  expiresAt: string;
+  /** @pattern ^[a-z]{3}$ */
+  currency: string;
+  subtotal: number;
+  /** @minimum 0 */
+  tax: number;
+  /** @minimum 0 */
+  total: number;
+}
+
+export interface BillingHostedAction {
+  url: string;
+  expiresAt: string;
+}
+
+export type BillingChangeResultState = typeof BillingChangeResultState[keyof typeof BillingChangeResultState];
+
+
+export const BillingChangeResultState = {
+  scheduled: 'scheduled',
+  payment_pending: 'payment_pending',
+  effective: 'effective',
+  outcome_unknown: 'outcome_unknown',
+} as const;
+
+export interface BillingChangeResult {
+  changeId: string;
+  state: BillingChangeResultState;
+  /** @nullable */
+  effectiveAt: string | null;
+  hostedAction: BillingHostedAction | null;
+}
+
+export type BillingChangeWithdrawalResultState = typeof BillingChangeWithdrawalResultState[keyof typeof BillingChangeWithdrawalResultState];
+
+
+export const BillingChangeWithdrawalResultState = {
+  withdrawn: 'withdrawn',
+} as const;
+
+export interface BillingChangeWithdrawalResult {
+  changeId: string;
+  state: BillingChangeWithdrawalResultState;
 }
 
 /**
@@ -213,9 +459,26 @@ export interface BillingStatus {
   environment: BillingStatusEnvironment;
   membership: BillingStatusMembership;
   /** @nullable */
+  effectiveTier: string | null;
+  cadence: BillingCadence | null;
+  /**
+     * @nullable
+     * @pattern ^[a-z]{3}$
+     */
+  currency: string | null;
+  /** @nullable */
   paidThrough: string | null;
   cancelAtPeriodEnd: boolean;
   usage: BillingUsage | null;
+  pendingChange: BillingPendingChange | null;
+  paymentProblem: BillingPaymentProblem | null;
+  managementEligible: boolean;
+  offers: BillingOffer[];
+  /**
+     * Bounded owner-scoped operation outcomes used only to reconcile previously submitted idempotency keys.
+     * @maxItems 50
+     */
+  operationStates?: BillingOperationState[];
 }
 
 export type BillingProblemCode = typeof BillingProblemCode[keyof typeof BillingProblemCode];
@@ -237,6 +500,7 @@ export const BillingProblemCode = {
   invalid_request: 'invalid_request',
   invalid_plan: 'invalid_plan',
   invalid_idempotency_key: 'invalid_idempotency_key',
+  invalid_portal_action: 'invalid_portal_action',
   pilot_not_admitted: 'pilot_not_admitted',
   origin_rejected: 'origin_rejected',
   http_401: 'http_401',
@@ -252,15 +516,41 @@ export const BillingProblemCode = {
   checkout_plan_conflict: 'checkout_plan_conflict',
   checkout_state_invalid: 'checkout_state_invalid',
   subscription_exists: 'subscription_exists',
+  subscription_missing: 'subscription_missing',
+  offer_unavailable: 'offer_unavailable',
+  currency_change_unsupported: 'currency_change_unsupported',
+  change_missing: 'change_missing',
+  change_not_required: 'change_not_required',
+  change_not_withdrawable: 'change_not_withdrawable',
+  preview_missing: 'preview_missing',
+  preview_expired: 'preview_expired',
+  portal_outcome_unknown: 'portal_outcome_unknown',
   reservation_conflict: 'reservation_conflict',
   reservation_released: 'reservation_released',
   provider_outcome_unknown: 'provider_outcome_unknown',
+  provider_deadline_exceeded: 'provider_deadline_exceeded',
   provider_rejected: 'provider_rejected',
+  invalid_provider_response: 'invalid_provider_response',
+  unsafe_portal_configuration: 'unsafe_portal_configuration',
+  invalid_price_configuration: 'invalid_price_configuration',
+  invalid_change_preview: 'invalid_change_preview',
+  invalid_schedule_relationship: 'invalid_schedule_relationship',
+  invalid_reversal_relationship: 'invalid_reversal_relationship',
+  invalid_refund_relationship: 'invalid_refund_relationship',
+  invalid_invoice_relationship: 'invalid_invoice_relationship',
+  invalid_invoice_payment_relationship: 'invalid_invoice_payment_relationship',
+  invalid_payment_problem: 'invalid_payment_problem',
+  invalid_subscription_relationship: 'invalid_subscription_relationship',
+  subscription_listing_truncated: 'subscription_listing_truncated',
+  schedule_listing_truncated: 'schedule_listing_truncated',
+  customer_listing_truncated: 'customer_listing_truncated',
+  checkout_listing_truncated: 'checkout_listing_truncated',
   invalid_webhook: 'invalid_webhook',
   webhook_too_large: 'webhook_too_large',
   webhook_rejected: 'webhook_rejected',
   invoice_not_paid: 'invoice_not_paid',
   billing_provider_unavailable: 'billing_provider_unavailable',
+  billing_outcome_unknown: 'billing_outcome_unknown',
   participant_throttled: 'participant_throttled',
   database_unavailable: 'database_unavailable',
   database_capacity_exhausted: 'database_capacity_exhausted',

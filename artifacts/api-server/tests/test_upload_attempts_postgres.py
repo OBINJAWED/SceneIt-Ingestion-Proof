@@ -65,9 +65,15 @@ class UploadAttemptsPostgresTests(unittest.TestCase):
                 "VALUES(%s,'test','2024-01-31T10:30:00Z')", (self.owner,))
             conn.execute(
                 "INSERT INTO sceneit_paid_coverage"
-                "(id,owner_id,subscription_id,starts_at,ends_at) "
+                "(id,owner_id,subscription_id,starts_at,ends_at,tier_key,tier_rank,"
+                "capabilities_snapshot,limits_snapshot) "
                 "VALUES('in_fixture',%s,'sub_fixture',"
-                "'2024-01-31T10:30:00Z','2030-01-31T10:30:00Z')",
+                "'2024-01-31T10:30:00Z','2030-01-31T10:30:00Z',"
+                "'fixture_basic',10,"
+                "'[\"imports\",\"uploads\",\"analysis\",\"searches\",\"frames\",\"media\"]',"
+                "'{\"imports\":100,\"upload_attempts\":100,\"analysis_seconds\":100,"
+                "\"searches\":100,\"media_bytes\":100,\"frames\":100,"
+                "\"storage_bytes\":100}')",
                 (self.owner,))
         self.addCleanup(self.drop)
 

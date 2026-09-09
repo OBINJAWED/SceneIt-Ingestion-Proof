@@ -12,3 +12,7 @@
 \ir migrations/008_commercial_usage.sql
 \ir migrations/009_upload_attempts.sql
 \ir migrations/010_firebase_identity.sql
+\ir migrations/011_tiered_billing.sql
+\ir migrations/012_billing_notifications.sql
+\ir migrations/013_billing_delivery_attempts.sql
+\ir migrations/014_upgrade_invoice_recovery.sql

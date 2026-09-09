@@ -220,6 +220,10 @@ def create_import():
         if existing:
             return jsonify(present_import(existing, _usage(conn, owner)))
         _require_new_private_work()
+        from .billing_config import billing_settings
+        if billing_settings().enabled and not uses_lifetime_allowance(conn, owner):
+            from .quota import check_work
+            check_work(conn, owner, capabilities=("imports",))
         active = conn.execute(
             "SELECT 1 FROM sceneit_imports WHERE owner_id=%s AND state=ANY(%s) LIMIT 1",
             (owner, list(ACTIVE_STATES))).fetchone()
@@ -294,7 +298,11 @@ def reserve_upload(import_id):
             reserve(
                 conn, owner, f"import:{import_id}:upload:{path}",
                 {"upload_attempts": 1}, require_membership=not trial)
-            reserve_storage(conn, None if trial else owner, path, body.sizeBytes)
+            reserve_storage(
+                conn, None if trial else owner, path, body.sizeBytes,
+                require_membership=not trial,
+                capability="uploads" if not trial else None,
+            )
         try:
             create_attempt(
                 conn, import_id, owner, attempt_id, path, body.sizeBytes)
@@ -375,6 +383,14 @@ def complete_upload(import_id):
                 "This upload reservation expired. Select the MP4 again.",
                 "upload_reservation_expired", 409,
             )
+        _require_new_private_work()
+        trial = uses_lifetime_allowance(conn, owner)
+        from .billing_config import billing_settings
+        settings = billing_settings()
+        commercial = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+        if commercial and not trial:
+            from .quota import check_work
+            check_work(conn, owner, capabilities=("uploads",))
         try:
             info = object_info(row["upload_path"])
         except Exception:
@@ -491,7 +507,7 @@ def import_frame(import_id, search_id, rank):
             row["expires_at"].tzinfo):
         raise ImportProblem("import_expired", "Import expired.", 410)
     try:
-        from .media import private_frame
+        from .media import MAX_FRAME_BYTES, private_frame
         match = row["matches"][rank-1]
         midpoint = (match["startSeconds"] + match["endSeconds"]) / 2
         operation_id = f"media:frame:{uuid.uuid4()}"
@@ -503,17 +519,18 @@ def import_frame(import_id, search_id, rank):
             with connection() as conn:
                 reserve(
                     conn, owner, operation_id,
-                    {"frames": 1, "media_bytes": int(row["file_size_bytes"])},
+                    {
+                        "frames": 1,
+                        # ffmpeg reads the source and can emit at most this
+                        # bounded response. Admit both before extraction.
+                        "media_bytes": (
+                            int(row["file_size_bytes"]) + MAX_FRAME_BYTES
+                        ),
+                    },
                     require_membership=not trial)
         output = private_frame(row["media_path"], row["media_generation"], midpoint)
         if not output:
             raise ImportProblem("frame_unavailable", "Source frame is unavailable.", 503)
-        if commercial:
-            with connection() as conn:
-                reserve(
-                    conn, owner, f"{operation_id}:response",
-                    {"media_bytes": len(output)},
-                    require_membership=not trial)
         response = send_file(io.BytesIO(output), mimetype="image/jpeg")
         response.headers["Cache-Control"] = "private, no-store"
         return response

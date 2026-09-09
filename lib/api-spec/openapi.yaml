@@ -127,7 +127,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/EmptyRequest" }
+            schema: { $ref: "#/components/schemas/BillingOperationInput" }
       responses:
         "200":
           description: Short-lived hosted customer-portal destination
@@ -141,6 +141,79 @@ paths:
         "409": { $ref: "#/components/responses/BillingFailure" }
         "429": { $ref: "#/components/responses/BillingFailure" }
         "500": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
+  /billing/change/preview:
+    post:
+      operationId: previewBillingChange
+      tags: [billing]
+      summary: Preview an allowlisted tier or cadence change
+      description: Returns an expiring authoritative money and tax preview. Existing subscriptions cannot change currency.
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BillingChangeSelection" }
+      responses:
+        "200":
+          description: Expiring server-authorized change preview
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingChangePreview" }
+        "400": { $ref: "#/components/responses/BillingFailure" }
+        "401": { $ref: "#/components/responses/BillingFailure" }
+        "402": { $ref: "#/components/responses/BillingFailure" }
+        "403": { $ref: "#/components/responses/BillingFailure" }
+        "409": { $ref: "#/components/responses/BillingFailure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
+  /billing/change/confirm:
+    post:
+      operationId: confirmBillingChange
+      tags: [billing]
+      summary: Confirm an unexpired billing change preview
+      description: Paid upgrades become effective only after verified payment. Scheduled changes remain pending until renewal.
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BillingChangeConfirmation" }
+      responses:
+        "200":
+          description: Confirmed or payment-pending change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingChangeResult" }
+        "400": { $ref: "#/components/responses/BillingFailure" }
+        "401": { $ref: "#/components/responses/BillingFailure" }
+        "402": { $ref: "#/components/responses/BillingFailure" }
+        "403": { $ref: "#/components/responses/BillingFailure" }
+        "409": { $ref: "#/components/responses/BillingFailure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
+  /billing/change/withdraw:
+    post:
+      operationId: withdrawBillingChange
+      tags: [billing]
+      summary: Withdraw a pending next-renewal billing change
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BillingChangeWithdrawal" }
+      responses:
+        "200":
+          description: Withdrawn pending change
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingChangeWithdrawalResult" }
+        "400": { $ref: "#/components/responses/BillingFailure" }
+        "401": { $ref: "#/components/responses/BillingFailure" }
+        "403": { $ref: "#/components/responses/BillingFailure" }
+        "409": { $ref: "#/components/responses/BillingFailure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
         "503": { $ref: "#/components/responses/BillingFailure" }
   /billing/webhook:
     post:
@@ -689,17 +762,159 @@ components:
     BillingCheckout:
       type: object
       additionalProperties: false
-      required: [plan, idempotencyKey]
+      required: [tier, cadence, currency, idempotencyKey]
       properties:
-        plan: { type: string, enum: [monthly, yearly] }
+        tier: { type: string, minLength: 1, maxLength: 64 }
+        cadence: { $ref: "#/components/schemas/BillingCadence" }
+        currency: { type: string, pattern: "^[a-z]{3}$" }
+        idempotencyKey: { type: string, format: uuid }
+    BillingOperationInput:
+      type: object
+      additionalProperties: false
+      required: [action, idempotencyKey]
+      properties:
+        action: { type: string, enum: [manage, cancel] }
+        idempotencyKey: { type: string, format: uuid }
+    BillingChangeSelection:
+      type: object
+      additionalProperties: false
+      required: [tier, cadence, currency, idempotencyKey]
+      properties:
+        tier: { type: string, minLength: 1, maxLength: 64 }
+        cadence: { $ref: "#/components/schemas/BillingCadence" }
+        currency: { type: string, pattern: "^[a-z]{3}$" }
+        idempotencyKey: { type: string, format: uuid }
+    BillingChangeConfirmation:
+      type: object
+      additionalProperties: false
+      required: [previewId, idempotencyKey]
+      properties:
+        previewId: { type: string, format: uuid }
+        idempotencyKey: { type: string, format: uuid }
+    BillingChangeWithdrawal:
+      type: object
+      additionalProperties: false
+      required: [changeId, idempotencyKey]
+      properties:
+        changeId: { type: string, format: uuid }
         idempotencyKey: { type: string, format: uuid }
     BillingHostedSession:
+      type: object
+      additionalProperties: false
+      required: [operationId, url, expiresAt]
+      properties:
+        operationId: { type: string, format: uuid }
+        url: { type: string, format: uri }
+        expiresAt: { type: string, format: date-time }
+    BillingCadence:
+      type: string
+      enum: [monthly, yearly]
+    BillingOffer:
+      type: object
+      additionalProperties: false
+      required: [tier, name, rank, cadence, currency, capabilities, limits, unitAmount, taxBehavior]
+      properties:
+        tier: { type: string }
+        name: { type: string }
+        rank: { type: integer, minimum: 0, maximum: 1000 }
+        cadence: { $ref: "#/components/schemas/BillingCadence" }
+        currency: { type: string, pattern: "^[a-z]{3}$" }
+        capabilities:
+          type: array
+          items: { type: string }
+        limits: { $ref: "#/components/schemas/BillingTierLimits" }
+        unitAmount: { type: integer, minimum: 1 }
+        taxBehavior: { type: string, enum: [inclusive, exclusive] }
+    BillingTierLimits:
+      type: object
+      additionalProperties: false
+      required: [imports, upload_attempts, analysis_seconds, searches, media_bytes, frames, storage_bytes]
+      properties:
+        imports: { type: integer, minimum: 1 }
+        upload_attempts: { type: integer, minimum: 1 }
+        analysis_seconds: { type: integer, minimum: 1 }
+        searches: { type: integer, minimum: 1 }
+        media_bytes: { type: integer, minimum: 1 }
+        frames: { type: integer, minimum: 1 }
+        storage_bytes: { type: integer, minimum: 1 }
+    BillingPendingChange:
+      type: object
+      additionalProperties: false
+      required: [changeId, tier, cadence, currency, effectiveAt, state]
+      properties:
+        changeId: { type: string, format: uuid }
+        tier: { type: string }
+        cadence: { $ref: "#/components/schemas/BillingCadence" }
+        currency: { type: string, pattern: "^[a-z]{3}$" }
+        effectiveAt: { type: string, format: date-time }
+        state: { type: string, enum: [confirming, payment_pending, scheduled, uncertain] }
+    BillingOperationState:
+      type: object
+      additionalProperties: false
+      required: [idempotencyKey, kind, state]
+      properties:
+        idempotencyKey: { type: string, format: uuid }
+        kind: { type: string, enum: [checkout, portal, upgrade, schedule, withdraw] }
+        state:
+          type: string
+          enum: [creating, created, confirming, confirmed, scheduled, payment_pending, completed, uncertain, withdrawn, expired, failed]
+    BillingPaymentProblem:
+      type: object
+      additionalProperties: false
+      required: [code, state, invoiceId, tier, cadence, currency, amountDue, nextAction, occurredAt, resolvedAt]
+      properties:
+        code: { type: string, enum: [payment_failed, expired_card, payment_authentication_required] }
+        state: { type: string, enum: [open, resolved] }
+        invoiceId: { type: ["string", "null"] }
+        tier: { type: ["string", "null"] }
+        cadence:
+          anyOf:
+            - $ref: "#/components/schemas/BillingCadence"
+            - { type: "null" }
+        currency: { type: ["string", "null"], pattern: "^[a-z]{3}$" }
+        amountDue: { type: ["integer", "null"], minimum: 0 }
+        nextAction: { type: string, enum: [manage_billing, authenticate_payment] }
+        occurredAt: { type: string, format: date-time }
+        resolvedAt: { type: ["string", "null"], format: date-time }
+    BillingChangePreview:
+      type: object
+      additionalProperties: false
+      required: [previewId, kind, effectiveAt, expiresAt, currency, subtotal, tax, total]
+      properties:
+        previewId: { type: string, format: uuid }
+        kind: { type: string, enum: [upgrade, scheduled] }
+        effectiveAt: { type: [string, "null"], format: date-time }
+        expiresAt: { type: string, format: date-time }
+        currency: { type: string, pattern: "^[a-z]{3}$" }
+        subtotal: { type: integer }
+        tax: { type: integer, minimum: 0 }
+        total: { type: integer, minimum: 0 }
+    BillingHostedAction:
       type: object
       additionalProperties: false
       required: [url, expiresAt]
       properties:
         url: { type: string, format: uri }
-        expiresAt: { type: [string, "null"], format: date-time }
+        expiresAt: { type: string, format: date-time }
+    BillingChangeResult:
+      type: object
+      additionalProperties: false
+      required: [changeId, state, effectiveAt, hostedAction]
+      properties:
+        changeId: { type: string, format: uuid }
+        state: { type: string, enum: [scheduled, payment_pending, effective, outcome_unknown] }
+        effectiveAt: { type: [string, "null"], format: date-time }
+        hostedAction:
+          anyOf:
+            - $ref: "#/components/schemas/BillingHostedAction"
+            - { type: "null" }
+    BillingChangeWithdrawalResult:
+      type: object
+      additionalProperties: false
+      required: [changeId, state]
+      properties:
+        changeId: { type: string, format: uuid }
+        state: { type: string, enum: [withdrawn] }
     BillingWebhookEvent:
       type: object
       description: Provider event whose exact raw bytes are verified before parsing.
@@ -742,17 +957,40 @@ components:
     BillingStatus:
       type: object
       additionalProperties: false
-      required: [enabled, environment, membership, paidThrough, cancelAtPeriodEnd, usage]
+      required: [enabled, environment, membership, effectiveTier, cadence, currency, paidThrough, cancelAtPeriodEnd, usage, pendingChange, paymentProblem, managementEligible, offers]
       properties:
         enabled: { type: boolean }
         environment: { type: [string, "null"], enum: [test, live, null] }
         membership: { type: string, enum: [disabled, active, inactive] }
+        effectiveTier: { type: ["string", "null"] }
+        cadence:
+          anyOf:
+            - $ref: "#/components/schemas/BillingCadence"
+            - { type: "null" }
+        currency: { type: ["string", "null"], pattern: "^[a-z]{3}$" }
         paidThrough: { type: [string, "null"], format: date-time }
         cancelAtPeriodEnd: { type: boolean }
         usage:
           anyOf:
             - $ref: "#/components/schemas/BillingUsage"
             - { type: "null" }
+        pendingChange:
+          anyOf:
+            - $ref: "#/components/schemas/BillingPendingChange"
+            - { type: "null" }
+        paymentProblem:
+          anyOf:
+            - $ref: "#/components/schemas/BillingPaymentProblem"
+            - { type: "null" }
+        managementEligible: { type: boolean }
+        offers:
+          type: array
+          items: { $ref: "#/components/schemas/BillingOffer" }
+        operationStates:
+          type: array
+          maxItems: 50
+          description: Bounded owner-scoped operation outcomes used only to reconcile previously submitted idempotency keys.
+          items: { $ref: "#/components/schemas/BillingOperationState" }
     BillingProblem:
       type: object
       additionalProperties: false
@@ -798,6 +1036,7 @@ components:
             - invalid_request
             - invalid_plan
             - invalid_idempotency_key
+            - invalid_portal_action
             - pilot_not_admitted
             - origin_rejected
             - http_401
@@ -813,15 +1052,41 @@ components:
             - checkout_plan_conflict
             - checkout_state_invalid
             - subscription_exists
+            - subscription_missing
+            - offer_unavailable
+            - currency_change_unsupported
+            - change_missing
+            - change_not_required
+            - change_not_withdrawable
+            - preview_missing
+            - preview_expired
+            - portal_outcome_unknown
             - reservation_conflict
             - reservation_released
             - provider_outcome_unknown
+            - provider_deadline_exceeded
             - provider_rejected
+            - invalid_provider_response
+            - unsafe_portal_configuration
+            - invalid_price_configuration
+            - invalid_change_preview
+            - invalid_schedule_relationship
+            - invalid_reversal_relationship
+            - invalid_refund_relationship
+            - invalid_invoice_relationship
+            - invalid_invoice_payment_relationship
+            - invalid_payment_problem
+            - invalid_subscription_relationship
+            - subscription_listing_truncated
+            - schedule_listing_truncated
+            - customer_listing_truncated
+            - checkout_listing_truncated
             - invalid_webhook
             - webhook_too_large
             - webhook_rejected
             - invoice_not_paid
             - billing_provider_unavailable
+            - billing_outcome_unknown
             - participant_throttled
             - database_unavailable
             - database_capacity_exhausted

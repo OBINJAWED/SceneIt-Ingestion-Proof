@@ -8,6 +8,8 @@ from pathlib import Path
 from .resources import shared_permit
 from .processes import bounded_process
 
+MAX_FRAME_BYTES = 1_000_000
+
 
 def private_frame(object_path, generation, midpoint):
     with shared_permit("media", lease_seconds=75):
@@ -16,7 +18,7 @@ def private_frame(object_path, generation, midpoint):
                 [sys.executable, "-m", "sceneit.media", object_path, str(generation),
                  str(midpoint), directory], timeout=60)
             frame = Path(directory) / "frame.jpg"
-            if result or not frame.is_file() or not 0 < frame.stat().st_size <= 1_000_000:
+            if result or not frame.is_file() or not 0 < frame.stat().st_size <= MAX_FRAME_BYTES:
                 raise RuntimeError("Source frame extraction failed")
             return frame.read_bytes()
 

@@ -1,7 +1,7 @@
 import { useAuth } from '@workspace/replit-auth-web';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Video, LogIn, LogOut, Loader2 } from 'lucide-react';
+import { Video, LogIn, LogOut, Loader2, CreditCard } from 'lucide-react';
 import { Link } from 'wouter';
 import { useGetImportConfig } from '@workspace/api-client-react';
 import { canReadPrivate } from '@/lib/private-access';
@@ -36,6 +36,7 @@ export function AuthHeader() {
         </Link>
         <div className="flex items-center gap-3 mt-1.5 text-sm text-muted-foreground font-medium">
           {auth.pilotAdmitted && <Link href="/demo" className="hover:text-foreground transition-colors focus-visible:outline-none focus-visible:underline rounded-sm">View Demo</Link>}
+          {isAuthenticated && <Link href="/billing" data-testid="link-billing" className="inline-flex items-center gap-1 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:underline rounded-sm"><CreditCard className="size-3.5" /> Billing</Link>}
           {!auth.pilotAdmitted && <span className="text-xs">Private video search</span>}
         </div>
       </div>

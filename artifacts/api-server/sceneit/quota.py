@@ -8,10 +8,19 @@ import calendar
 from datetime import datetime, timedelta, timezone
 
 from .billing_config import BillingProblem, METRICS, billing_settings
+from .billing_time import billing_now
 from .config import settings
 from .db import connection
 
 UTC = timezone.utc
+CAPABILITY_BY_METRIC = {
+    "imports": "imports",
+    "upload_attempts": "uploads",
+    "analysis_seconds": "analysis",
+    "searches": "searches",
+    "media_bytes": "media",
+    "frames": "frames",
+}
 
 
 def monthly_window(anchor, now):
@@ -37,10 +46,119 @@ def _lock(conn):
 
 def _now(conn):
     # Wall time AFTER acquiring locks, never transaction-start time at a rollover.
-    return conn.execute("SELECT clock_timestamp() AS now").fetchone()["now"]
+    return billing_now(conn)
 
 
-def _account(conn, owner_id, now, *, require_membership=True):
+def _snapshot(row):
+    """Validate the immutable entitlement facts saved with paid coverage."""
+    limits = row.get("limits_snapshot")
+    capabilities = row.get("capabilities_snapshot")
+    rank = row.get("tier_rank")
+    if (
+        not isinstance(row.get("tier_key"), str)
+        or type(rank) is not int or rank < 0
+        or not isinstance(capabilities, list)
+        or any(not isinstance(item, str) for item in capabilities)
+        or len(capabilities) != len(set(capabilities))
+        or not isinstance(limits, dict)
+        or set(limits) != {*METRICS, "storage_bytes"}
+        or any(type(value) is not int or not 0 < value <= 10**15
+               for value in limits.values())
+    ):
+        return None
+    return {
+        "tier_key": row["tier_key"],
+        "rank": rank,
+        "capabilities": frozenset(capabilities),
+        "limits": dict(limits),
+        "coverage_id": row["id"],
+        "owner_id": row["owner_id"],
+        "subscription_id": row["subscription_id"],
+        "coverage_kind": row["coverage_kind"],
+        "funds_coverage_id": row["funds_coverage_id"],
+        "starts_at": row["starts_at"],
+        "ends_at": row["ends_at"],
+        "cadence": row.get("cadence"),
+        "currency": row.get("currency"),
+        "price_id": row.get("price_id"),
+        "subtotal": row.get("subtotal"),
+        "tax": row.get("tax"),
+        "total": row.get("total"),
+        "amount_paid": row.get("amount_paid"),
+        "tax_behavior": row.get("tax_behavior"),
+        "provider_created_at": row.get("provider_created_at"),
+        "provider_receipt_at": row.get("provider_receipt_at"),
+        # Only a verified paid upgrade that is bound to an authenticated,
+        # confirmed change may increase an already-created usage window.
+        "can_raise_window": row["coverage_kind"] == "upgrade",
+    }
+
+
+def effective_coverage(conn, owner_id, now=None, *, subscription_id=None):
+    """Resolve the highest valid coverage through its complete funding chain.
+
+    Callers making a financial mutation must first lock the billing account.
+    Read/admission callers may use the immutable returned snapshot directly.
+    """
+    now = billing_now(conn) if now is None else now
+    rows = conn.execute(
+        "SELECT c.*,EXISTS (SELECT 1 FROM sceneit_billing_changes ch "
+        "WHERE ch.owner_id=c.owner_id AND ch.kind='upgrade' "
+        "AND ch.state='effective' AND ch.funded_invoice_id=c.id) "
+        "AS authenticated_upgrade FROM sceneit_paid_coverage c "
+        "WHERE c.owner_id=%s AND NOT c.reversed AND c.starts_at<=%s AND c.ends_at>%s "
+        "AND (%s::text IS NULL OR c.subscription_id=%s::text) "
+        "ORDER BY c.tier_rank,c.provider_created_at NULLS FIRST,c.id",
+        (owner_id, now, now, subscription_id, subscription_id),
+    ).fetchall()
+    # Catalog configuration accepts at most 20 tiers. A deeper active chain is
+    # malformed and fails closed rather than consuming unbounded work.
+    max_depth = 20
+    valid = {}
+    pending = []
+    for row in rows:
+        snapshot = _snapshot(row)
+        if not snapshot:
+            continue
+        if row["coverage_kind"] == "period":
+            valid[row["id"]] = (snapshot, 1)
+        elif row["coverage_kind"] == "upgrade" and row["authenticated_upgrade"]:
+            pending.append((row, snapshot))
+    for _ in range(max_depth - 1):
+        progressed = False
+        remaining = []
+        for row, snapshot in pending:
+            parent = valid.get(row["funds_coverage_id"])
+            if (
+                parent
+                and parent[1] < max_depth
+                and parent[0]["owner_id"] == snapshot["owner_id"]
+                and parent[0]["subscription_id"] == snapshot["subscription_id"]
+                and snapshot["rank"] > parent[0]["rank"]
+                and snapshot["starts_at"] >= parent[0]["starts_at"]
+                and snapshot["ends_at"] <= parent[0]["ends_at"]
+            ):
+                valid[row["id"]] = (snapshot, parent[1] + 1)
+                progressed = True
+            else:
+                remaining.append((row, snapshot))
+        pending = remaining
+        if not progressed:
+            break
+    if not valid:
+        return None
+    return max(
+        (item[0] for item in valid.values()),
+        key=lambda item: (item["rank"], item["ends_at"], item["coverage_id"]),
+    )
+
+
+def _effective_entitlement(conn, owner_id, now):
+    """Compatibility wrapper for quota and existing billing callers."""
+    return effective_coverage(conn, owner_id, now)
+
+
+def _account(conn, owner_id, now, *, require_membership=True, capabilities=()):
     if owner_id is None:
         if require_membership:
             raise BillingProblem("membership_required", "Paid membership is required.", 402)
@@ -51,12 +169,22 @@ def _account(conn, owner_id, now, *, require_membership=True):
         "SELECT * FROM sceneit_billing_accounts WHERE owner_id=%s FOR UPDATE",
         (owner_id,)).fetchone()
     if require_membership:
-        covered = account and account["environment"] == billing_settings().environment and (
-            conn.execute(
-                "SELECT 1 FROM sceneit_paid_coverage WHERE owner_id=%s AND NOT reversed "
-                "AND starts_at<=%s AND ends_at>%s LIMIT 1", (owner_id, now, now)).fetchone())
-        if not covered or not account["allowance_anchor"] or account["allowance_anchor"] > now:
+        entitlement = (
+            _effective_entitlement(conn, owner_id, now)
+            if account and account["environment"] == billing_settings().environment
+            else None
+        )
+        if not entitlement or not account["allowance_anchor"] or account["allowance_anchor"] > now:
             raise BillingProblem("membership_required", "Current paid coverage is required for new work.", 402)
+        missing = set(capabilities) - entitlement["capabilities"]
+        if missing:
+            raise BillingProblem(
+                "tier_capability_required",
+                "Your current membership tier does not include this work.",
+                403,
+            )
+        account = dict(account)
+        account["entitlement"] = entitlement
     return account
 
 
@@ -73,7 +201,7 @@ def _membership_required(conn, owner_id, requested):
     return usage_owner(conn, owner_id) == owner_id
 
 
-def check_work(conn, owner_id, *, require_membership=True):
+def check_work(conn, owner_id, *, require_membership=True, capabilities=()):
     if not billing_settings().enabled:
         return
     require_membership = _membership_required(
@@ -85,10 +213,17 @@ def check_work(conn, owner_id, *, require_membership=True):
     ).fetchone()
     if not stopped or stopped["stopped"]:
         raise BillingProblem("service_work_stopped", "New expensive work is temporarily stopped.", 503)
-    return _account(conn, owner_id, _now(conn), require_membership=require_membership)
+    if isinstance(capabilities, str):
+        capabilities = (capabilities,)
+    if not isinstance(capabilities, (tuple, list, set, frozenset)):
+        raise ValueError("Invalid capability requirement")
+    return _account(
+        conn, owner_id, _now(conn), require_membership=require_membership,
+        capabilities=capabilities if require_membership else (),
+    )
 
 
-def _window(conn, scope, start, end, metric, limit):
+def _window(conn, scope, start, end, metric, limit, *, allow_raise=False):
     conn.execute(
         "INSERT INTO sceneit_usage_windows(scope,starts_at,ends_at,metric,allowance) "
         "VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
@@ -97,8 +232,15 @@ def _window(conn, scope, start, end, metric, limit):
         "SELECT used,allowance FROM sceneit_usage_windows "
         "WHERE scope=%s AND starts_at=%s AND metric=%s FOR UPDATE",
         (scope, start, metric)).fetchone()
-    # Lowering configured limits takes effect immediately; raising them cannot
-    # mint additional units in a window already established under older policy.
+    if allow_raise and row["allowance"] < limit:
+        row = conn.execute(
+            "UPDATE sceneit_usage_windows SET allowance=%s "
+            "WHERE scope=%s AND starts_at=%s AND metric=%s RETURNING used,allowance",
+            (limit, scope, start, metric),
+        ).fetchone()
+    # A lower effective snapshot (for example, a downgrade/refunded upgrade)
+    # restricts immediately. Only authenticated verified upgrade coverage sets
+    # allow_raise; mutable legacy configuration never raises this window.
     return row["used"], min(row["allowance"], limit)
 
 
@@ -124,7 +266,14 @@ def _reserve(conn, owner_id, operation_id, amounts, *, require_membership=True):
     require_membership = _membership_required(
         conn, owner_id, require_membership
     )
-    account = check_work(conn, owner_id, require_membership=require_membership)
+    capabilities = {
+        CAPABILITY_BY_METRIC[metric] for metric in amounts
+        if metric in CAPABILITY_BY_METRIC
+    }
+    account = check_work(
+        conn, owner_id, require_membership=require_membership,
+        capabilities=capabilities,
+    )
     now = _now(conn)
     app_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     app_end = app_start + timedelta(days=1)
@@ -132,6 +281,7 @@ def _reserve(conn, owner_id, operation_id, amounts, *, require_membership=True):
     owner = owner_id if require_membership else None
     owner_start, owner_end = (
         monthly_window(account["allowance_anchor"], now) if owner else (None, None))
+    entitlement = account.get("entitlement") if owner else None
     for metric, amount in sorted(amounts.items()):
         existing = conn.execute(
             "SELECT * FROM sceneit_usage_reservations WHERE operation_id=%s AND metric=%s",
@@ -145,9 +295,17 @@ def _reserve(conn, owner_id, operation_id, amounts, *, require_membership=True):
             continue
         scopes = [("app", app_start, app_end, policy.app_limits[metric])]
         if owner:
-            scopes.append((f"owner:{owner}", owner_start, owner_end, policy.limits[metric]))
+            scopes.append((
+                f"owner:{owner}", owner_start, owner_end,
+                entitlement["limits"][metric],
+            ))
         for scope, start, end, limit in scopes:
-            used, allowed = _window(conn, scope, start, end, metric, limit)
+            used, allowed = _window(
+                conn, scope, start, end, metric, limit,
+                allow_raise=bool(
+                    owner and scope != "app" and entitlement["can_raise_window"]
+                ),
+            )
             if used + amount > allowed:
                 app = scope == "app"
                 raise BillingProblem(
@@ -194,14 +352,26 @@ def _storage_used(conn, owner_id=None):
     ).fetchone()["used"]
 
 
-def reserve_storage(conn, owner_id, object_key, size_bytes, *, require_membership=True):
+def reserve_storage(
+        conn, owner_id, object_key, size_bytes, *, require_membership=True,
+        capability="uploads"):
     policy = billing_settings()
     if not policy.enabled:
         return
     if (type(size_bytes) is not int or not 1 <= size_bytes <= 10**15
             or not isinstance(object_key, str) or not 1 <= len(object_key) <= 2048):
         raise ValueError("Invalid storage reservation")
-    check_work(conn, owner_id, require_membership=require_membership)
+    # Worker calls retain the private import owner, but durable Firebase trials
+    # consume only application capacity and have no paid billing account.
+    # Normalize before both admission and occupancy identity so a caller cannot
+    # accidentally dereference a nonexistent paid entitlement below.
+    require_membership = _membership_required(
+        conn, owner_id, require_membership
+    )
+    account = check_work(
+        conn, owner_id, require_membership=require_membership,
+        capabilities=(capability,) if capability else (),
+    )
     owner_id = owner_id if require_membership else None
     old = conn.execute("SELECT * FROM sceneit_storage_reservations WHERE object_key=%s",
                        (object_key,)).fetchone()
@@ -212,7 +382,11 @@ def reserve_storage(conn, owner_id, object_key, size_bytes, *, require_membershi
         return
     if _storage_used(conn) + size_bytes > policy.app_limits["storage_bytes"]:
         raise BillingProblem("service_capacity_exhausted", "Application storage capacity is exhausted.", 503)
-    if owner_id is not None and _storage_used(conn, owner_id) + size_bytes > policy.limits["storage_bytes"]:
+    owner_limit = (
+        account["entitlement"]["limits"]["storage_bytes"]
+        if owner_id is not None else None
+    )
+    if owner_id is not None and _storage_used(conn, owner_id) + size_bytes > owner_limit:
         raise BillingProblem("storage_quota_exhausted", "Stored media allowance is exhausted.", 429)
     conn.execute(
         "INSERT INTO sceneit_storage_reservations(object_key,owner_id,size_bytes) VALUES(%s,%s,%s)",
@@ -296,7 +470,7 @@ def usage_status(owner_id, conn=None):
     now = _now(conn)
     # Status is usable after admission/coverage loss and never creates windows.
     account = conn.execute(
-        "SELECT allowance_anchor FROM sceneit_billing_accounts WHERE owner_id=%s",
+        "SELECT allowance_anchor,environment FROM sceneit_billing_accounts WHERE owner_id=%s",
         (owner_id,)).fetchone()
     anchor = account and account["allowance_anchor"]
     start, end = monthly_window(anchor, now) if anchor and anchor <= now else (None, None)
@@ -304,15 +478,29 @@ def usage_status(owner_id, conn=None):
         "SELECT metric,used,allowance FROM sceneit_usage_windows WHERE scope=%s AND starts_at=%s",
         (f"owner:{owner_id}", start)).fetchall() if start else []
     by_metric = {row["metric"]: row for row in rows}
+    entitlement = (
+        _effective_entitlement(conn, owner_id, now)
+        if account and account["environment"] == policy.environment else None
+    )
 
     def metric_status(metric):
         row = by_metric.get(metric, {})
-        limit = min(policy.limits[metric], row.get("allowance", policy.limits[metric]))
+        snapshot_limit = (
+            entitlement["limits"][metric] if entitlement
+            else row.get("allowance", 0)
+        )
+        limit = (
+            snapshot_limit if entitlement and entitlement["can_raise_window"]
+            else min(snapshot_limit, row.get("allowance", snapshot_limit))
+        )
         used = int(row.get("used", 0))
         return {"limit": limit, "used": used, "remaining": max(0, limit - used)}
 
     used = int(_storage_used(conn, owner_id))
-    limit = policy.limits["storage_bytes"]
+    limit = (
+        entitlement["limits"]["storage_bytes"]
+        if entitlement else 0
+    )
     control = conn.execute("SELECT stopped FROM sceneit_work_control WHERE singleton=true").fetchone()
     return {
         "windowStart": start.isoformat() if start else None,

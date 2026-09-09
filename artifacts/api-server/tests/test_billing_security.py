@@ -20,8 +20,14 @@ SESSION = {
 }
 BASE_URL = "https://sceneit.example"
 CHECKOUT = {
-    "plan": "monthly",
+    "tier": "fixture_basic",
+    "cadence": "monthly",
+    "currency": "usd",
     "idempotencyKey": "6f30e229-bb64-46bc-aaf5-779bd96b9c11",
+}
+PORTAL = {
+    "action": "manage",
+    "idempotencyKey": "24e7b94a-dbc9-4fa7-a614-bbb35165d2b5",
 }
 
 
@@ -55,7 +61,7 @@ class BillingSecurityTests(unittest.TestCase):
                     "/api/billing/checkout", json=CHECKOUT, base_url=BASE_URL
                 ),
                 self.client.post(
-                    "/api/billing/portal", json={}, base_url=BASE_URL
+                    "/api/billing/portal", json=PORTAL, base_url=BASE_URL
                 ),
             )
 
@@ -105,7 +111,7 @@ class BillingSecurityTests(unittest.TestCase):
             )
             portal_response = self.client.post(
                 "/api/billing/portal",
-                json={},
+                json=PORTAL,
                 headers={"X-CSRF-Token": "csrf-1"},
                 base_url=BASE_URL,
             )
@@ -120,8 +126,12 @@ class BillingSecurityTests(unittest.TestCase):
         self.assertEqual(200, portal_response.status_code)
         self.assertEqual(403, checkout_response.status_code)
         self.assertEqual("pilot_not_admitted", checkout_response.get_json()["code"])
-        status.assert_called_once_with("former-pilot-subject")
-        portal.assert_called_once_with("former-pilot-subject")
+        status.assert_called_once_with(
+            "former-pilot-subject", purchase_authorized=False
+        )
+        portal.assert_called_once_with(
+            "former-pilot-subject", "manage", PORTAL["idempotencyKey"]
+        )
         checkout.assert_not_called()
 
     def test_checkout_strict_keys_reject_server_authority_injection(self):
@@ -168,7 +178,9 @@ class BillingSecurityTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertEqual("inactive", response.get_json()["membership"])
-        status.assert_called_once_with("oidc-subject-1")
+        status.assert_called_once_with(
+            "oidc-subject-1", purchase_authorized=True
+        )
         checkout.assert_not_called()
 
     def test_webhook_has_narrow_size_and_signature_boundary(self):
@@ -275,7 +287,7 @@ class BillingSecurityTests(unittest.TestCase):
             )
             portal = self.client.post(
                 "/api/billing/portal",
-                json={},
+                json=PORTAL,
                 headers={"X-CSRF-Token": "csrf-1"},
                 base_url=BASE_URL,
             )

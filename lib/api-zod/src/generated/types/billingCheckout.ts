@@ -5,9 +5,16 @@
  * SceneIt one-video ingestion and semantic-search proof.
  * OpenAPI spec version: 0.1.0
  */
-import type { BillingCheckoutPlan } from './billingCheckoutPlan';
+import type { BillingCadence } from './billingCadence';
 
 export interface BillingCheckout {
-  plan: BillingCheckoutPlan;
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  tier: string;
+  cadence: BillingCadence;
+  /** @pattern ^[a-z]{3}$ */
+  currency: string;
   idempotencyKey: string;
 }

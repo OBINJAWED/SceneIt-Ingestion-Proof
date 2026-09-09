@@ -36,19 +36,29 @@ Non-secret billing controls:
 - `SCENEIT_BILLING_ENVIRONMENT`: `test` or `live`.
 - `SCENEIT_BILLING_LIVE_APPROVED`: must be exactly `true` before live mode can
   start. This guard is not itself approval; retain the separate approval record.
-- `SCENEIT_STRIPE_PRICE_MONTHLY` and `SCENEIT_STRIPE_PRICE_YEARLY`: reviewed
-  recurring Stripe Price IDs from the selected environment. Browser requests
-  choose only `monthly` or `yearly` and can never provide a Price ID.
+- `SCENEIT_BILLING_CATALOG`: explicitly reviewed JSON containing `reviewed`,
+  `tiers`, and `offers`. Each tier supplies `key`, `name`, `rank`,
+  `capabilities`, and all finite `limits`. Each offer supplies `tier`,
+  `cadence`, `currency`, `priceId`, `unitAmount`, `taxBehavior`, `taxCode`,
+  and `saleEnabled`. Browser requests choose only an approved
+  tier/cadence/currency tuple, never a Price, tax rate, or amount.
+- Historical Prices remain mapped even when disabled for new sales. The old
+  single-membership monthly/yearly environment variables do not define new
+  offers. Explicitly review their historical tier association; never infer
+  packaging, prices, or allowances from fixture tiers.
 - `SCENEIT_BILLING_RETURN_URL`: a fixed trusted HTTPS URL with no query or
   fragment. Do not derive it from request headers or a browser-supplied URL.
 - `SCENEIT_STRIPE_PORTAL_CONFIGURATION`: the reviewed Stripe Customer Portal
   configuration for the selected environment.
-- Required finite, positive integer member limits:
+- Required finite, positive integer legacy member-policy limits:
   `SCENEIT_MEMBER_IMPORTS`, `SCENEIT_MEMBER_UPLOAD_ATTEMPTS`,
   `SCENEIT_MEMBER_ANALYSIS_SECONDS`, `SCENEIT_MEMBER_SEARCHES`,
   `SCENEIT_MEMBER_STORAGE_BYTES`, `SCENEIT_MEMBER_MEDIA_BYTES`, and
   `SCENEIT_MEMBER_FRAMES`.
-- Required finite, positive integer application limits use the same
+- Reviewed tier limits come from verified coverage snapshots, not the legacy
+  member-policy ceiling. The legacy controls support explicit historical mapping;
+  they must not clip a separately reviewed higher tier. Application limits
+  remain independently enforced and use the same
   suffixes with `SCENEIT_APP_` instead of `SCENEIT_MEMBER_`.
 
 Secrets:
@@ -69,7 +79,7 @@ of month is retained: a day that does not exist is clamped to month end, and the
 original day returns in a later month that contains it. A yearly subscription
 uses the same monthly windows; it does not expose a year's allowance at once.
 
-Owner limits do not roll over and have no automatic overage. Changing plan,
+Owner limits do not roll over and have no automatic overage. Changing tier,
 customer, or subscription identity, cancelling and resubscribing, replaying an
 event, or deleting work must not reset the anchor, history, or consumed usage.
 Application operation budgets reset on UTC calendar-day boundaries. Storage is
@@ -115,6 +125,28 @@ Shared HTTP infrastructure may additionally emit `database_unavailable`,
 - A confirmed payment reversal removes only the invoice-scoped coverage it
   funded. Reversal decisions are sticky and cannot be undone by an older,
   duplicate, or reordered success event for that invoice.
+- Same-cadence upgrades require an expiring server preview and confirmation.
+  Successful verified prorated payment funds only the incremental tier access.
+  A failed/abandoned upgrade leaves independently funded base coverage intact.
+  Refunding even part of a successfully funded upgrade reverses its increment,
+  not the base invoice; pending/failed refunds do not revoke coverage.
+- Successive incremental upgrades retain the complete funding dependency chain.
+  Reversing an earlier increment also removes higher access that depends on that
+  increment. A later independently funded full-period renewal is not dependent
+  on those historical increments. None of these reversals replenishes usage.
+- An abandoned unpaid upgrade is not terminal merely because its hosted page
+  was closed. Verified invoice voiding or pending-update expiry can retire the
+  bound change and release its blocker without altering paid base coverage.
+  Unknown outcomes remain blocked for reconciliation.
+- Downgrades and cadence changes are scheduled for subscription renewal and can
+  be withdrawn before taking effect. They do not create a second subscription.
+  No change resets usage or allowance anchors. A paid upgrade can raise the
+  current ceiling with usage retained; a downgrade over quota denies new work
+  without deleting retained media.
+- Failed renewals grant neither grace coverage nor a fresh allowance. Already
+  paid access lasts to its verified deadline. Expired-card and authentication
+  failures offer secure hosted recovery; returning or updating a card is not
+  proof of payment.
 - Webhook event IDs are durably deduplicated. Processing validates Stripe
   signature/timestamp, test/live environment, customer, subscription, and
   allowlisted price relationships, then reconciles current provider state
@@ -155,6 +187,16 @@ is not hosted-payment certification; its test Price IDs do not enable billing.
 The operator has chosen to leave billing as a disabled placeholder so unrelated
 development can continue. Do not request Stripe setup again until the operator
 resumes payment work, and do not bypass verification before commercial activation.
+
+Use [the activation review](billing-activation-review.md) for the required tier,
+currency, tax, billing-email, receipt, reminder-owner, and independent outage
+monitor approvals. All selling terms remain unapproved until explicitly
+reviewed. The two test fixture tiers are not production defaults.
+
+The [Test Clock handoff](billing-test-clock.md) documents opt-in isolated
+verification and redacted evidence. The [notification runbook](billing-notification-operations.md)
+covers one-shot bounded dunning/incident operations. Neither document authorizes
+sandbox execution, SMTP delivery, or scheduler activation.
 
 ## Operator stop and reservation release
 
@@ -250,6 +292,84 @@ Checkout conflicts use HTTP 409 codes `checkout_completed`, `checkout_exists`,
 with arbitrary new identifiers to bypass them.
 
 ## Secret rotation, rollback, and incidents
+
+
+### Tiered history and recovery commands
+
+`timeline` is a read-only, JSON, keyset-paginated receipt view. It includes
+provider/receipt/processing timestamps, delivery and processing counts, safe
+references, currency/minor-unit amounts, and outcomes. Follow the returned
+`nextCursor` using both `--before-received-at` and `--before-event-id`.
+`--state`, `--event-type`, and `--payment-key` narrow the view. Amounts belong to
+event receipts and **must not be summed**; repeated events share a payment key.
+`pageDistinctPayments` is only the distinct count on that page.
+
+```sh
+uv run --locked python -m sceneit.billing_ops timeline --limit 25
+uv run --locked python -m sceneit.billing_ops timeline \
+  --payment-key "$PAYMENT_REFERENCE" --limit 25
+uv run --locked python -m sceneit.billing_ops recover-operations \
+  --limit 20 --operator-approved --evidence "$REVIEWED_EVIDENCE"
+uv run --locked python -m sceneit.billing_ops map-legacy-coverage \
+  --limit 25 --after-id "$LAST_INVOICE_ID" \
+  --operator-approved --evidence "$REVIEWED_EVIDENCE"
+```
+
+Review legacy mappings against each original provider invoice, not the current
+subscription Price. Mapping may populate missing immutable snapshots; it must
+not alter original coverage periods, reversals, usage, or allowance anchors.
+An unknown schedule remains unknown until its exact future Price, quantity, and
+mutation identity are verified through every reconciliation entry point.
+
+`expire-uncertain-portal --operation ... --operator-approved --evidence ...`
+is the explicit terminal recovery for a Portal operation uncertain for at least
+24 hours. It clears hosted data and records the operator's evidence; it does not
+retry a purchase or claim a cancellation/payment succeeded. Never manually
+clear uncertain financial changes to bypass their durable blockers.
+
+After any successful step of a multi-request provider mutation, later rejection
+or response-validation failure remains recovery-required. A created schedule ID
+is retained even when its configuration fails. Recovery first checks the exact
+intended schedule; an identity-validated, unconfigured one-phase schedule at the
+persisted source Price may instead be released using its dedicated compensation
+key. Only a fresh confirmation that this exact schedule is released makes the
+failed setup terminal and permits a new change. This never cancels the subscription;
+ambiguous release or altered schedule facts retain the blocker. The same
+post-mutation uncertainty rule applies to upgrade and withdrawal responses.
+
+Customer withdrawal additionally verifies the effective deadline and fresh
+provider phase before release, then verifies the released subscription remains
+on the unchanged source Price and period. A release that races an applied target
+phase is reconciled as effective, not withdrawn; phase evidence alone never grants
+paid coverage. The same checks apply to uncertain-withdrawal recovery.
+Scheduled-operation recovery and schedule webhooks use this same phase proof;
+a terminal provider schedule status alone does not mean the change failed.
+
+Scheduled previews expire no later than the quoted renewal. Confirmation must
+still match the freshly retrieved source period, and schedule creation must
+retain that exact phase boundary. A crossed renewal requires a fresh preview and
+customer confirmation; it never silently shifts the change to the following term.
+
+Compensating release is also recoverable after a lost response or verification
+read. Recovery must find the persisted release intent and separately verified
+source-phase proof before accepting an already-released, unconfigured schedule.
+It does not rewrite the customer's quote or issue another release. Without that
+proof, the uncertain-operation blocker remains for operator review.
+
+An active pre-renewal schedule is not a completed withdrawal. Recovery keeps that
+withdrawal uncertain and may retry only the original provider operation key within
+its retention window, after fresh phase verification. It checks the resulting
+subscription again before resolving the request. Older uncertain withdrawals
+remain for review rather than receiving a fresh mutation key.
+
+The browser retains an operation key for retries and uncertain outcomes. A
+verified expired, completed, or failed operation may be retired before the
+customer explicitly starts a fresh operation. It must not reuse an expired
+Portal/Checkout session or consumed preview indefinitely, and it must not rotate
+keys solely because of a timeout, reload, or missing status row.
+An exact matching scheduled operation can clear the local uncertainty marker
+without retiring its key. Its pending change still prevents another purchase
+while allowing a valid pre-renewal withdrawal.
 
 For secret rotation, create the replacement in the same Stripe environment,
 update the secret store, restart, verify readiness, then revoke the old key.

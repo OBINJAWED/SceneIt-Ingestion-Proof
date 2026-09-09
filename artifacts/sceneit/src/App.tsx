@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { ArrowLeft, Film } from 'lucide-react';
@@ -10,6 +10,7 @@ import ImportsIndex from '@/pages/index';
 import SingleImport from '@/pages/import';
 import AuthPage from '@/pages/auth';
 import AuthActionPage from '@/pages/auth-action';
+import BillingPage from '@/pages/billing';
 import { useAuth } from '@workspace/replit-auth-web';
 import { isPilotAllowed } from '@/lib/polling';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -22,6 +23,26 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function AccountStateBoundary({ children }: { children: ReactNode }) {
+  const auth = useAuth();
+  const previousOwner = useRef<string | null | undefined>(undefined);
+  const owner = auth.user?.id ?? null;
+
+  useEffect(() => {
+    if (previousOwner.current !== undefined && previousOwner.current !== null && previousOwner.current !== owner) {
+      queryClient.clear();
+      sessionStorage.removeItem('pendingImportLink');
+      for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+        const key = sessionStorage.key(index);
+        if (key?.startsWith('sceneit:billing:')) sessionStorage.removeItem(key);
+      }
+    }
+    previousOwner.current = owner;
+  }, [owner]);
+
+  return <>{children}</>;
+}
 
 function PilotGate({ children }: { children: ReactNode }) {
   const auth = useAuth();
@@ -59,6 +80,7 @@ function Router() {
     document.title = location === '/' ? 'SceneIt — Private video search'
       : location === '/demo' ? 'SceneIt — Scene search demo'
       : location.startsWith('/imports/') ? 'SceneIt — Private analysis'
+      : location === '/billing' ? 'SceneIt — Membership & billing'
       : location.startsWith('/auth') ? 'SceneIt — Authentication'
       : 'SceneIt — Page not found';
   }, [location]);
@@ -68,6 +90,7 @@ function Router() {
       <Route path="/" component={ImportsIndex} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/auth/action" component={AuthActionPage} />
+      <Route path="/billing" component={BillingPage} />
       <Route path="/imports/:id" component={SingleImport} />
       <Route path="/demo">
         <PilotGate><Home /></PilotGate>
@@ -103,7 +126,7 @@ function App() {
     <ErrorBoundary><QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
+          <AccountStateBoundary><Router /></AccountStateBoundary>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

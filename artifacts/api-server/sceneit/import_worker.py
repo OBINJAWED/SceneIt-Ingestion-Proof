@@ -39,11 +39,11 @@ def _commercial_enabled():
     return settings["enabled"] if isinstance(settings, dict) else settings.enabled
 
 
-def _check_commercial_work(owner_id):
+def _check_commercial_work(owner_id, *capabilities):
     if _commercial_enabled():
         from .quota import check_work
         with connection() as conn:
-            check_work(conn, owner_id)
+            check_work(conn, owner_id, capabilities=capabilities)
 
 
 def _reserve_media_read(job, size_bytes, purpose):
@@ -338,7 +338,7 @@ def _prepare_media(job):
                 with connection() as conn:
                     reserve_storage(
                         conn, job["owner_id"], path,
-                        int(job["file_size_bytes"]))
+                        int(job["file_size_bytes"]), capability="analysis")
             _update(
                 job, media_path=path, media_generation=None,
                 status_message="Saving validated private media.",
@@ -367,7 +367,7 @@ def _provider_step(job, client):
         if not math.isfinite(duration) or duration <= 0:
             raise ValueError("duration_out_of_range")
         with connection() as conn:
-            check_work(conn, job["owner_id"])
+            check_work(conn, job["owner_id"], capabilities=("analysis",))
             # One identity follows the import through retries and billing
             # windows. An interrupted mutation keeps this reservation.
             reserve(
@@ -599,7 +599,7 @@ def process_job(job, client=None):
     try:
         started = job.get("processing_started_at")
         if job["state"] != "cancel_requested":
-            _check_commercial_work(job["owner_id"])
+            _check_commercial_work(job["owner_id"], "analysis")
         if (job["state"] != "cancel_requested" and started and
                 (datetime.now(timezone.utc) - started).total_seconds() >
                 PROCESSING_DEADLINE_SECONDS):
