@@ -22,6 +22,7 @@ import {
   AlertTriangle, ArrowLeft, CheckCircle2, Clock3, ExternalLink, Film,
   Loader2, LockKeyhole, Search, ShieldCheck, Trash2,
 } from 'lucide-react';
+import { createStatusPoller } from '@/lib/polling';
 
 export default function SingleImport() {
   const { id = '' } = useParams();
@@ -76,6 +77,7 @@ function CandidateFrame({ match }: { match: ImportMatch }) {
 }
 function Analysis({ id, token }: { id: string; token: string }) {
   const cache = useQueryClient();
+  const statusPoller = useRef(createStatusPoller());
   const headers = { 'X-CSRF-Token': token };
   const [text, setText] = useState('');
   const [modality, setModality] = useState<'visual' | 'audio' | 'both'>('visual');
@@ -94,7 +96,9 @@ function Analysis({ id, token }: { id: string; token: string }) {
     queryKey: ['/api/imports', id],
     refetchInterval: query => {
       const state = query.state.data?.state;
-      return state && ['ready', 'failed', 'cancelled', 'expired', 'needs_review'].includes(state) ? false : 3000;
+      return statusPoller.current.next(
+        Boolean(state && ['ready', 'failed', 'cancelled', 'expired', 'needs_review'].includes(state)),
+      );
     },
   } });
   const item = itemQuery.data;
@@ -104,6 +108,7 @@ function Analysis({ id, token }: { id: string; token: string }) {
   } });
   const history = historyQuery.data || [];
   const refresh = async () => {
+    statusPoller.current.reset();
     await cache.invalidateQueries({ queryKey: ['/api/imports', id] });
     await cache.invalidateQueries({ queryKey: ['/api/imports/current'] });
   };

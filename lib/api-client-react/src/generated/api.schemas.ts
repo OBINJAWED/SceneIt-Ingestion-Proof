@@ -23,6 +23,8 @@ export type AuthStateUser = {
 export interface AuthState {
   /** @nullable */
   csrfToken: string | null;
+  /** Server-authoritative pilot admission. False for anonymous, denied, or indeterminate sessions. */
+  pilotAdmitted: boolean;
   /** @nullable */
   user: AuthStateUser;
 }
@@ -225,6 +227,97 @@ export interface ApiFailure {
   code: string;
 }
 
+export type ProtectedApiFailureState = typeof ProtectedApiFailureState[keyof typeof ProtectedApiFailureState];
+
+
+export const ProtectedApiFailureState = {
+  admission_required: 'admission_required',
+  quota_exhausted: 'quota_exhausted',
+  processing: 'processing',
+  uncertain: 'uncertain',
+  service_unavailable: 'service_unavailable',
+  not_found: 'not_found',
+  unauthorized: 'unauthorized',
+} as const;
+
+export interface ProtectedApiFailure {
+  error: string;
+  code: string;
+  state: ProtectedApiFailureState;
+  retryable?: boolean;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  retryAfterSeconds?: number | null;
+}
+
+export type ProofReadinessState = typeof ProofReadinessState[keyof typeof ProofReadinessState];
+
+
+export const ProofReadinessState = {
+  ready: 'ready',
+  admission_required: 'admission_required',
+  quota_exhausted: 'quota_exhausted',
+  processing: 'processing',
+  uncertain: 'uncertain',
+  service_unavailable: 'service_unavailable',
+} as const;
+
+export type ProofReadinessProofState = typeof ProofReadinessProofState[keyof typeof ProofReadinessProofState];
+
+
+export const ProofReadinessProofState = {
+  queued: 'queued',
+  uploading: 'uploading',
+  processing: 'processing',
+  indexing: 'indexing',
+  ready: 'ready',
+  failed: 'failed',
+  needs_review: 'needs_review',
+} as const;
+
+export interface ProofReadiness {
+  state: ProofReadinessState;
+  proofState: ProofReadinessProofState;
+  searchAvailable: boolean;
+  /** @minimum 0 */
+  searchesUsed: number;
+  /** @minimum 0 */
+  searchLimit: number;
+  /** @nullable */
+  detail: string | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  retryAfterSeconds: number | null;
+}
+
+export type SearchOperationState = typeof SearchOperationState[keyof typeof SearchOperationState];
+
+
+export const SearchOperationState = {
+  running: 'running',
+  done: 'done',
+  failed: 'failed',
+  needs_review: 'needs_review',
+} as const;
+
+export interface SearchOperation {
+  id: string;
+  state: SearchOperationState;
+  /** @nullable */
+  attemptId: string | null;
+  createdAt: string;
+  /** @nullable */
+  deadlineAt: string | null;
+  /** @nullable */
+  completedAt: string | null;
+  /** @nullable */
+  errorCode: string | null;
+}
+
 export type ProofCheckStatus = typeof ProofCheckStatus[keyof typeof ProofCheckStatus];
 
 
@@ -352,6 +445,61 @@ export interface HealthStatus {
   status: string;
 }
 
+export type ReadinessStatusStatus = typeof ReadinessStatusStatus[keyof typeof ReadinessStatusStatus];
+
+
+export const ReadinessStatusStatus = {
+  ready: 'ready',
+  not_ready: 'not_ready',
+} as const;
+
+export type ReadinessStatusChecksConfig = typeof ReadinessStatusChecksConfig[keyof typeof ReadinessStatusChecksConfig];
+
+
+export const ReadinessStatusChecksConfig = {
+  ok: 'ok',
+  invalid: 'invalid',
+} as const;
+
+export type ReadinessStatusChecksDatabase = typeof ReadinessStatusChecksDatabase[keyof typeof ReadinessStatusChecksDatabase];
+
+
+export const ReadinessStatusChecksDatabase = {
+  ok: 'ok',
+  unavailable: 'unavailable',
+} as const;
+
+export type ReadinessStatusChecksSchema = typeof ReadinessStatusChecksSchema[keyof typeof ReadinessStatusChecksSchema];
+
+
+export const ReadinessStatusChecksSchema = {
+  ok: 'ok',
+  incompatible: 'incompatible',
+} as const;
+
+export type ReadinessStatusChecks = {
+  config: ReadinessStatusChecksConfig;
+  database: ReadinessStatusChecksDatabase;
+  schema: ReadinessStatusChecksSchema;
+};
+
+export type ReadinessStatusExternalProvider = typeof ReadinessStatusExternalProvider[keyof typeof ReadinessStatusExternalProvider];
+
+
+export const ReadinessStatusExternalProvider = {
+  not_probed: 'not_probed',
+} as const;
+
+export type ReadinessStatusExternal = {
+  provider: ReadinessStatusExternalProvider;
+};
+
+export interface ReadinessStatus {
+  status: ReadinessStatusStatus;
+  checks: ReadinessStatusChecks;
+  external: ReadinessStatusExternal;
+}
+
 /**
  * Current private import
  */
@@ -361,6 +509,11 @@ export type ImportResponseResponse = VideoImport;
  * Safe, actionable failure
  */
 export type FailureResponse = ApiFailure;
+
+/**
+ * Typed protected-resource failure
+ */
+export type ProtectedFailureResponse = ProtectedApiFailure;
 
 export type LoginParams = {
 returnTo?: string;

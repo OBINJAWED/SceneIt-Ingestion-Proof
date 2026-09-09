@@ -11,6 +11,12 @@ from typing import Literal
 
 from .db import PROOF_ID, connection, get_proof
 from .provider import ProviderError, TwelveLabsClient
+from .resources import ResourceExhausted, shared_permit
+
+
+# The provider call and fenced persistence must finish within this window.
+# 75 seconds leaves headroom under the production Gunicorn 90 second timeout.
+SEARCH_DEADLINE_SECONDS = 75
 
 
 class SceneQuery(BaseModel):
@@ -89,7 +95,19 @@ def list_searches():
         ).fetchall()
     return [present_search(row) for row in rows]
 
-
+def present_search_operation(row):
+    """Safe operation metadata; search text is deliberately omitted."""
+    return {
+        "id": str(row["id"]),
+        "state": row["state"],
+        "attemptId": str(row["attempt_id"]),
+        "createdAt": row["created_at"].isoformat(),
+        "deadlineAt": row["deadline_at"].isoformat(),
+        "completedAt": (
+            row["completed_at"].isoformat() if row["completed_at"] else None
+        ),
+        "errorCode": row["error_code"],
+    }
 def public_proof():
     row = get_proof()
     if not row:
@@ -223,16 +241,59 @@ def normalize_matches(raw, proof, search_id):
     return result, dropped
 
 
-def search_scenes(payload):
+def search_scenes(payload, client_factory=TwelveLabsClient):
+    """Run one paid submission under a cross-process, crash-expiring permit."""
+    query = SceneQuery.model_validate(payload)
+    query_key = unicodedata.normalize("NFKC", query.query).casefold()
+    # Cached and non-repeatable outcomes are reads, not scarce provider work.
+    # This preflight is advisory; the locked reservation below remains the
+    # authoritative deduplication check for races.
+    reconcile_search_operations()
+    with connection() as conn:
+        existing = conn.execute(
+            "SELECT * FROM sceneit_searches WHERE proof_id=%s AND query_key=%s "
+            "AND modality=%s",
+            (PROOF_ID, query_key, query.modality),
+        ).fetchone()
+    if existing:
+        if existing["state"] == "done":
+            return present_search(existing)
+        code = ("search_in_progress" if existing["state"] == "running"
+                else "search_needs_review" if existing["state"] == "needs_review"
+                else "search_failed")
+        raise ProofError(
+            code,
+            "That paid search will not be automatically resubmitted.",
+            409,
+        )
+    try:
+        with shared_permit(
+                "search", lease_seconds=SEARCH_DEADLINE_SECONDS + 5):
+            return _search_scenes(payload, client_factory)
+    except ResourceExhausted:
+        raise ProofError(
+            "busy", "Search capacity is busy. Please retry shortly.", 429
+        ) from None
+
+def _search_scenes(payload, client_factory):
     query = SceneQuery.model_validate(payload)
     query_key = unicodedata.normalize("NFKC", query.query).casefold()
     search_id = uuid.uuid4()
+    attempt_id = uuid.uuid4()
+    from .http import set_operation_context
+    set_operation_context(search_id, attempt_id)
     with connection() as conn:
         proof = conn.execute(
             "SELECT * FROM sceneit_proofs WHERE id = %s FOR UPDATE", (PROOF_ID,)
         ).fetchone()
         if not proof or proof["state"] != "ready":
             raise ProofError("index_not_ready", "The video must finish indexing before you can search it.", 409)
+        conn.execute(
+            "UPDATE sceneit_searches SET state='needs_review',"
+            "error_code='search_outcome_unknown',completed_at=now() "
+            "WHERE proof_id=%s AND state='running' AND deadline_at<=now()",
+            (PROOF_ID,),
+        )
         existing = conn.execute(
             "SELECT * FROM sceneit_searches WHERE proof_id = %s AND query_key = %s AND modality = %s",
             (PROOF_ID, query_key, query.modality),
@@ -242,13 +303,15 @@ def search_scenes(payload):
                 return present_search(existing)
             if existing["state"] == "running":
                 raise ProofError("search_in_progress", "This search was submitted and is still pending. It will not be automatically resubmitted.", 409)
+            if existing["state"] == "needs_review":
+                raise ProofError("search_needs_review", "That search has an uncertain outcome and requires operator review. It will not be resubmitted.", 409)
             raise ProofError("search_failed", "That search failed. Try a different description; the failed request will not be automatically repeated.", 409)
         now = datetime.now(timezone.utc)
         if proof["last_search_at"] and (now - proof["last_search_at"]).total_seconds() < 3:
             raise ProofError("rate_limited", "Please wait a few seconds before another search.", 429)
         running = conn.execute(
             "SELECT count(*) AS n FROM sceneit_searches WHERE proof_id = %s "
-            "AND state = 'running' AND created_at > now() - interval '2 minutes'", (PROOF_ID,)
+            "AND state = 'running' AND deadline_at > now()", (PROOF_ID,)
         ).fetchone()["n"]
         if running >= 2:
             raise ProofError("busy", "Two searches are already running. Please wait.", 429)
@@ -258,42 +321,80 @@ def search_scenes(payload):
             "UPDATE sceneit_proofs SET searches_used = searches_used + 1, last_search_at = now() WHERE id = %s",
             (PROOF_ID,),
         )
-        conn.execute(
-            "INSERT INTO sceneit_searches(id, proof_id, query, query_key, modality) VALUES (%s,%s,%s,%s,%s)",
-            (search_id, PROOF_ID, query.query, query_key, query.modality),
-        )
+        operation = conn.execute(
+            "INSERT INTO sceneit_searches"
+            "(id,proof_id,query,query_key,modality,attempt_id,deadline_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,now()+(%s * interval '1 second')) "
+            "RETURNING deadline_at",
+            (search_id, PROOF_ID, query.query, query_key, query.modality,
+             attempt_id, SEARCH_DEADLINE_SECONDS),
+        ).fetchone()
     started = time.monotonic()
+    client = None
     try:
-        raw = TwelveLabsClient().search(
-            proof["index_id"], query.query, query.modality, proof["indexed_asset_id"]
+        remaining = (
+            operation["deadline_at"] - datetime.now(timezone.utc)
+        ).total_seconds()
+        client = client_factory()
+        raw = client.search(
+            proof["index_id"], query.query, query.modality,
+            proof["indexed_asset_id"], timeout_seconds=remaining,
         )
         matches, partial = normalize_matches(raw, proof, search_id)
         latency = int((time.monotonic() - started) * 1000)
         with connection() as conn:
             row = conn.execute(
-                "UPDATE sceneit_searches SET state = 'done', matches = %s, partial = %s, "
-                "latency_ms = %s, completed_at = now() WHERE id = %s RETURNING *",
-                (Jsonb(matches), partial, latency, search_id),
+                "UPDATE sceneit_searches SET state='done',matches=%s,partial=%s,"
+                "latency_ms=%s,completed_at=now(),resolved_at=now(),"
+                "resolution='completed' WHERE id=%s "
+                "AND attempt_id=%s AND state='running' AND deadline_at>now() "
+                "RETURNING *",
+                (Jsonb(matches), partial, latency, search_id, attempt_id),
             ).fetchone()
+        if not row:
+            reconcile_search_operations()
+            raise ProofError(
+                "search_needs_review",
+                "The search response arrived after its safe completion window and requires review.",
+                409,
+            )
         return present_search(row)
     except (ProviderError, ProofError) as exc:
+        uncertain = (
+            isinstance(exc, ProviderError) and exc.ambiguous
+        ) or isinstance(exc, ProofError)
+        state = "needs_review" if uncertain else "failed"
+        code = "search_outcome_unknown" if uncertain else exc.code
         with connection() as conn:
             conn.execute(
-                "UPDATE sceneit_searches SET state = 'failed', error_code = %s, completed_at = now() WHERE id = %s",
-                (exc.code, search_id),
+                "UPDATE sceneit_searches SET state=%s,error_code=%s,"
+                "completed_at=now(),"
+                "resolved_at=CASE WHEN %s='failed' THEN now() ELSE NULL END,"
+                "resolution=CASE WHEN %s='failed' THEN 'failed' ELSE NULL END "
+                "WHERE id=%s AND attempt_id=%s "
+                "AND state='running' AND deadline_at>now()",
+                (state, code, state, state, search_id, attempt_id),
             )
+        reconcile_search_operations()
         if isinstance(exc, ProviderError):
-            raise ProofError(exc.code, exc.message, 502) from None
+            raise ProofError(
+                exc.code, exc.message, 503 if uncertain else 502
+            ) from None
         raise
     except Exception:
         with connection() as conn:
             conn.execute(
-                "UPDATE sceneit_searches SET state = 'failed', error_code = 'search_internal_error', "
-                "completed_at = now() WHERE id = %s", (search_id,)
+                "UPDATE sceneit_searches SET state='needs_review',"
+                "error_code='search_outcome_unknown',completed_at=now() "
+                "WHERE id=%s AND attempt_id=%s AND state='running' "
+                "AND deadline_at>now()",
+                (search_id, attempt_id),
             )
+        reconcile_search_operations()
         raise
-
-
+    finally:
+        if client is not None:
+            client.close()
 def report():
     proof = public_proof()
     if proof["timelineStatus"] == "verified":
@@ -320,3 +421,116 @@ def report():
             "A hard cap of 50 submitted provider searches limits proof usage.",
         ] + [check["detail"] for check in proof["checks"] if check["id"] == "embed" and check["status"] == "failed"],
     }
+
+def get_search_operation(search_id):
+    reconcile_search_operations()
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM sceneit_searches WHERE proof_id=%s AND id=%s",
+            (PROOF_ID, search_id),
+        ).fetchone()
+    if not row:
+        raise ProofError("search_not_found", "Search operation not found.", 404)
+    return present_search_operation(row)
+
+def list_search_operations():
+    reconcile_search_operations()
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM sceneit_searches WHERE proof_id=%s "
+            "ORDER BY created_at DESC LIMIT 50",
+            (PROOF_ID,),
+        ).fetchall()
+    return [present_search_operation(row) for row in rows]
+
+def reconcile_search_operations():
+    """Move expired submissions to review without retrying or refunding them."""
+    with connection() as conn:
+        rows = conn.execute(
+            "UPDATE sceneit_searches SET state='needs_review',"
+            "error_code='search_outcome_unknown',completed_at=now() "
+            "WHERE proof_id=%s AND state='running' AND deadline_at<=now() "
+            "RETURNING *",
+            (PROOF_ID,),
+        ).fetchall()
+    return [present_search_operation(row) for row in rows]
+
+def proof_readiness():
+    """Summarize local proof dependencies without probing or exposing them."""
+    proof = get_proof()
+    if not proof:
+        raise ProofError(
+            "proof_not_initialized", "Proof readiness is unavailable.", 503
+        )
+    proof_state = proof["state"]
+    used = proof["searches_used"]
+    limit = proof["search_limit"]
+    provider_configured = bool(proof["index_id"] and proof["indexed_asset_id"])
+    media = proof.get("media") or {}
+    playback = media.get("sourcePlayback") or {}
+    media_configured = bool(
+        playback.get("objectPath")
+        and playback.get("permissionConfirmed") is True
+    )
+    playback_ready = bool(
+        media_configured and playback.get("rightsPolicy") == "public-app-viewers"
+    )
+
+    if proof_state == "needs_review":
+        state, detail = "uncertain", "The proof requires operator review."
+    elif proof_state in {"queued", "uploading", "processing", "indexing"}:
+        state, detail = "processing", "The proof is still processing."
+    elif proof_state != "ready" or not provider_configured:
+        state, detail = (
+            "service_unavailable",
+            "Semantic search configuration is unavailable.",
+        )
+    elif used >= limit:
+        state, detail = (
+            "quota_exhausted",
+            "The proof search budget is exhausted; saved results remain available.",
+        )
+    elif not media_configured:
+        state, detail = (
+            "ready",
+            "Semantic search is ready; proof media is not configured.",
+        )
+    elif not playback_ready:
+        state, detail = (
+            "ready",
+            "Semantic search is ready; source playback is degraded.",
+        )
+    else:
+        state, detail = "ready", None
+    return {
+        "state": state,
+        "proofState": proof_state,
+        "searchAvailable": state == "ready",
+        "searchesUsed": used,
+        "searchLimit": limit,
+        "detail": detail,
+        "retryAfterSeconds": None,
+    }
+
+def resolve_search_operation(search_id, resolution):
+    """Operator resolution.  Resolution never changes cumulative quota."""
+    if resolution not in ("confirmed_failed", "review_retained"):
+        raise ProofError("invalid_resolution", "Invalid search resolution.", 400)
+    state = "failed" if resolution == "confirmed_failed" else "needs_review"
+    with connection() as conn:
+        row = conn.execute(
+            "UPDATE sceneit_searches SET state=%s,resolution=%s,resolved_at=now(),"
+            "completed_at=COALESCE(completed_at,now()),"
+            "error_code=CASE WHEN %s='failed' THEN 'operator_confirmed_failed' "
+            "ELSE COALESCE(error_code,'search_outcome_unknown') END "
+            "WHERE proof_id=%s AND id=%s AND state IN ('running','needs_review') "
+            "RETURNING *",
+            (state, resolution, state, PROOF_ID, search_id),
+        ).fetchone()
+    if not row:
+        raise ProofError(
+            "search_not_resolvable",
+            "Search operation was not found or is already final.",
+            409,
+        )
+    return present_search_operation(row)

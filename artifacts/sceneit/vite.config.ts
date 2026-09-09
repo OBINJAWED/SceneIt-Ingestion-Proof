@@ -71,6 +71,14 @@ export default defineConfig({
     allowedHosts: true,
     fs: {
       strict: true,
+      // The monorepo root contains protected proof media and backend files.
+      // Do not let /@fs bypass the API's session/admission checks in preview.
+      allow: [
+        path.resolve(import.meta.dirname),
+        path.resolve(import.meta.dirname, '../../lib'),
+        path.resolve(import.meta.dirname, '../../node_modules'),
+      ],
+      deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/attached_assets/**'],
     },
   },
   preview: {

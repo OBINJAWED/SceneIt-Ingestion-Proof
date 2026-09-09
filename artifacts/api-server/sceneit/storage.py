@@ -32,7 +32,7 @@ def signed_url(path, method, ttl_seconds=300):
             "method": method,
             "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat(),
         },
-        timeout=30,
+        timeout=httpx.Timeout(5, connect=2),
     )
     response.raise_for_status()
     return response.json()["signed_url"]

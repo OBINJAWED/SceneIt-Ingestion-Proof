@@ -61,6 +61,13 @@ export default defineConfig({
     allowedHosts: true,
     fs: {
       strict: true,
+      // Preview tooling must not expose sibling backend or protected media files.
+      allow: [
+        path.resolve(import.meta.dirname),
+        path.resolve(import.meta.dirname, "../../lib"),
+        path.resolve(import.meta.dirname, "../../node_modules"),
+      ],
+      deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/attached_assets/**"],
     },
   },
   preview: {

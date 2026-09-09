@@ -18,6 +18,7 @@ from .storage import private_object_path, upload_source
 ROOT = Path(__file__).resolve().parents[3]
 logger = logging.getLogger("sceneit.worker")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
+from .resources import ResourceExhausted, shared_permit
 
 
 def log(event, **fields):
@@ -216,7 +217,21 @@ def run_step(client):
 
 
 def run(max_seconds):
-    with worker_lock():
+    try:
+        with shared_permit(
+                # A provider upload can begin on the final loop iteration.
+                # Keep the crash lease beyond both its 300 second operation
+                # budget and a final bounded socket read.
+                "import_worker", lease_seconds=max_seconds + 630):
+            with worker_lock():
+                return _run_with_client(max_seconds)
+    except ResourceExhausted:
+        log("worker_capacity_exhausted")
+        return 2
+
+def _run_with_client(max_seconds):
+    client = None
+    try:
         client = TwelveLabsClient()
         deadline = time.monotonic() + max_seconds
         failures, delay = 0, 3
@@ -253,8 +268,9 @@ def run(max_seconds):
         update_proof(message="Polling paused at its time limit. The saved provider job can be resumed without re-uploading.")
         log("polling_deadline_reached")
         return 2
-
-
+    finally:
+        if client is not None:
+            client.close()
 def publish_source(permission_confirmed, rights_policy):
     """Persist the already-indexed original for rights-approved first-party playback."""
     if not permission_confirmed or rights_policy != "public-app-viewers":
@@ -304,6 +320,11 @@ def main(argv=None):
     publisher = commands.add_parser("publish-source")
     publisher.add_argument("--permission-confirmed", action="store_true", required=True)
     publisher.add_argument("--rights-policy", choices=["public-app-viewers"], required=True)
+    searches = commands.add_parser("search-operations")
+    searches.add_argument("action", choices=["status", "reconcile", "resolve"])
+    searches.add_argument("--id")
+    searches.add_argument(
+        "--resolution", choices=["confirmed_failed", "review_retained"])
     args = parser.parse_args(argv)
     if args.command == "init":
         initialize(args.source, args.youtube_id)
@@ -311,8 +332,23 @@ def main(argv=None):
         return run(max(30, min(args.max_seconds, 1800)))
     elif args.command == "refresh-youtube-metadata":
         return refresh_youtube_metadata()
-    else:
+    elif args.command == "publish-source":
         publish_source(args.permission_confirmed, args.rights_policy)
+    else:
+        from .proof import (
+            get_search_operation, list_search_operations,
+            reconcile_search_operations, resolve_search_operation,
+        )
+        if args.action == "status":
+            result = (get_search_operation(args.id) if args.id
+                      else list_search_operations())
+        elif args.action == "reconcile":
+            result = reconcile_search_operations()
+        else:
+            if not args.id or not args.resolution:
+                parser.error("resolve requires --id and --resolution")
+            result = resolve_search_operation(args.id, args.resolution)
+        print(json.dumps(result))
     return 0
 
 

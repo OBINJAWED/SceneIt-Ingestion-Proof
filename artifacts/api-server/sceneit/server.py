@@ -1,224 +1,115 @@
-"""Flask API: legacy public proof plus owner-scoped private import requests."""
-import io
-import json
+"""Flask application entry point for the controlled SceneIt pilot."""
 import logging
 import os
-import subprocess
-import threading
-import uuid
-from pathlib import Path
-from urllib.parse import urlsplit
 
-import httpx
-from flask import Flask, Response, jsonify, request, send_file, stream_with_context
-from pydantic import ValidationError
-from werkzeug.exceptions import HTTPException
-from werkzeug.middleware.proxy_fix import ProxyFix
+from flask import Flask, jsonify, request
 
-from .db import PROOF_ID, connection
-from .proof import ProofError, list_searches, public_proof, report, search_scenes
-from .storage import safe_content_range, signed_url
+from .proof import (
+    list_search_operations, list_searches, proof_readiness, public_proof, report,
+    search_scenes,
+)
 
-ROOT = Path(__file__).resolve().parents[3]
 logger = logging.getLogger("sceneit")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 # Standard access logs include the complete callback query (an OIDC authorization
 # code). Keep application event/error logs, not raw request lines or bearer URLs.
 logging.getLogger("werkzeug").setLevel(logging.WARNING)
 logging.getLogger("gunicorn.access").disabled = True
-frame_slots = threading.BoundedSemaphore(2)
-app = Flask(__name__)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
-app.config["MAX_CONTENT_LENGTH"] = 4096
 
 
-@app.before_request
-def protect_requests():
-    request.request_id = uuid.uuid4().hex
-    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
-        return
-    origin = request.headers.get("Origin")
-    if origin and urlsplit(origin).netloc != request.host:
-        raise ProofError("origin_rejected", "Cross-site requests are not permitted.", 403)
-    if not request.is_json:
-        raise ProofError("json_required", "Send a JSON request.", 400)
-
-
-@app.after_request
-def security_headers(response):
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["X-Request-ID"] = getattr(request, "request_id", "")
-    if response.mimetype == "application/json":
-        response.headers.setdefault("Cache-Control", "no-store")
-    if request.path.startswith(("/api/imports", "/api/auth", "/api/login", "/api/callback", "/api/logout")):
-        response.headers["Cache-Control"] = "private, no-store"
-        response.headers["Vary"] = "Cookie"
-        response.headers["Referrer-Policy"] = "no-referrer"
-    return response
-
-
-@app.get("/api/healthz")
-def health():
-    return jsonify(status="ok")
-
-
-@app.get("/api/readyz")
-def readiness():
-    with connection() as conn:
-        conn.execute("SELECT 1")
-    return jsonify(status="ready")
-
-
-@app.get("/api/proof")
-def proof_status():
-    return jsonify(public_proof())
-
-
-@app.get("/api/proof/searches")
-def history():
-    return jsonify(list_searches())
-
-
-@app.post("/api/proof/searches")
-def semantic_search():
-    result = search_scenes(request.get_json())
-    logger.info(json.dumps({"event": "search_completed", "request_id": request.request_id,
-                            "matches": len(result["matches"]), "latency_ms": result["latencyMs"]}))
-    return jsonify(result)
-
-
-@app.get("/api/proof/report")
-def evidence():
-    return jsonify(report())
-
-
-@app.get("/api/proof/source")
-def source_video():
-    """Range-capable proxy for the one rights-approved proof source."""
-    with connection() as conn:
-        row = conn.execute(
-            "SELECT media FROM sceneit_proofs WHERE id = %s", (PROOF_ID,)
-        ).fetchone()
-    playback = row and row["media"].get("sourcePlayback")
+def _environment_config():
+    domains = list(filter(None, (
+        os.environ.get("TRUSTED_HOSTS", ""),
+        os.environ.get("REPLIT_DOMAINS", ""),
+        os.environ.get("REPLIT_DEV_DOMAIN", ""),
+    )))
+    # The workspace artifact router performs screenshot/health requests through
+    # localhost. Admit loopback only in an interactive Replit workspace, never
+    # in a deployment where the externally configured host policy stays exact.
     if (
-        not playback
-        or playback.get("permissionConfirmed") is not True
-        or playback.get("rightsPolicy") != "public-app-viewers"
+        os.environ.get("REPLIT_DEV_DOMAIN")
+        and not os.environ.get("REPLIT_DEPLOYMENT")
     ):
-        raise ProofError("source_playback_unavailable", "Source playback is not available.", 404)
-    requested_range = request.headers.get("Range")
-    byte_range = safe_content_range(requested_range)
-    if requested_range and not byte_range:
-        raise ProofError("invalid_range", "Only one valid byte range may be requested.", 416)
-    headers = {"Range": byte_range} if byte_range else {}
-    client = httpx.Client(timeout=60)
+        domains.extend(("localhost", "127.0.0.1"))
     try:
-        upstream = client.send(
-            httpx.Request("GET", signed_url(playback["objectPath"], "GET"), headers=headers),
-            stream=True,
-        )
-    except Exception:
-        client.close()
-        raise
-    if upstream.status_code == 416:
-        content_range = upstream.headers.get("Content-Range")
-        upstream.close()
-        client.close()
-        response = jsonify(error="The requested byte range is not satisfiable.", code="range_not_satisfiable")
-        response.status_code = 416
-        if content_range:
-            response.headers["Content-Range"] = content_range
-        response.headers["Accept-Ranges"] = "bytes"
-        return response
-    expected_status = 206 if byte_range else 200
-    if upstream.status_code != expected_status:
-        upstream.close()
-        client.close()
-        raise ProofError("source_playback_unavailable", "Source playback is temporarily unavailable.", 503)
-    response_headers = {
-        "Accept-Ranges": "bytes",
-        "Content-Type": upstream.headers.get("Content-Type", playback["contentType"]),
-        "Cache-Control": "public, max-age=300",
+        proxy_hops = int(os.environ.get("TRUST_PROXY_HOPS", "1"))
+    except ValueError as exc:
+        raise RuntimeError("TRUST_PROXY_HOPS must be an integer") from exc
+    try:
+        readiness_timeout = int(os.environ.get("READINESS_TIMEOUT_MS", "1500"))
+    except ValueError as exc:
+        raise RuntimeError("READINESS_TIMEOUT_MS must be an integer") from exc
+    return {
+        "SESSION_SECRET": os.environ.get("SESSION_SECRET"),
+        "PILOT_ALLOWED_SUBJECTS": os.environ.get("PILOT_ALLOWED_SUBJECTS", ""),
+        "TRUSTED_HOSTS": ",".join(domains),
+        "TRUST_PROXY_HOPS": proxy_hops,
+        "READINESS_TIMEOUT_MS": readiness_timeout,
+        "DATABASE_CONFIGURED": bool(os.environ.get("DATABASE_URL")),
+        "MAX_CONTENT_LENGTH": 4096,
     }
-    for name in ("Content-Length", "Content-Range", "ETag"):
-        if name in upstream.headers:
-            response_headers[name] = upstream.headers[name]
-
-    @stream_with_context
-    def body():
-        try:
-            yield from upstream.iter_bytes()
-        finally:
-            upstream.close()
-            client.close()
-
-    return Response(body(), status=upstream.status_code, headers=response_headers)
 
 
-@app.get("/api/proof/searches/<uuid:search_id>/frames/<int:rank>")
-def source_frame(search_id, rank):
-    with connection() as conn:
-        row = conn.execute(
-            "SELECT s.matches, p.source_path FROM sceneit_searches s "
-            "JOIN sceneit_proofs p ON p.id = s.proof_id "
-            "WHERE s.id = %s AND p.id = %s AND s.state = 'done'",
-            (search_id, PROOF_ID),
-        ).fetchone()
-    if not row or rank < 1 or rank > len(row["matches"]):
-        raise ProofError("frame_not_found", "Source frame not found.", 404)
-    source = (ROOT / row["source_path"]).resolve()
-    if not source.is_relative_to(ROOT / "attached_assets") or not source.is_file():
-        raise ProofError("source_unavailable", "The source file is unavailable on this server.", 404)
-    match = row["matches"][rank - 1]
-    midpoint = (match["startSeconds"] + match["endSeconds"]) / 2
-    if not frame_slots.acquire(blocking=False):
-        raise ProofError("frame_busy", "Source frame extraction is busy. Please retry.", 429)
-    try:
-        frame = subprocess.run(
-            ["ffmpeg", "-v", "error", "-ss", str(midpoint), "-i", str(source),
-             "-frames:v", "1", "-vf", "scale=640:-2", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"],
-            capture_output=True, timeout=20, check=True,
-        ).stdout
-        if not frame:
-            raise ProofError("frame_unavailable", "The source frame could not be extracted.", 503)
-        response = send_file(io.BytesIO(frame), mimetype="image/jpeg")
-        response.headers["Cache-Control"] = "private, max-age=86400"
-        return response
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-        raise ProofError("frame_unavailable", "The source frame could not be extracted.", 503) from None
-    finally:
-        frame_slots.release()
+def create_app(config=None):
+    """Create the app without migrations, database access, or provider calls."""
+    from .auth import init_auth, require_csrf
+    from .health import health_bp
+    from .http import install_http
+    from .imports import imports_bp
+    from .proof_media import proof_media_bp
+    from .security import install_security
+
+    application = Flask(__name__)
+    if config is None:
+        application.config.from_mapping(_environment_config())
+    else:
+        # Explicit factory configuration is isolated from malformed or incomplete
+        # process environment, making route tests deterministic.
+        application.config.from_mapping({
+            "MAX_CONTENT_LENGTH": 4096,
+            "TRUST_PROXY_HOPS": 0,
+            "PILOT_ALLOWED_SUBJECTS": "",
+            "TRUSTED_HOSTS": (),
+            "DATABASE_CONFIGURED": False,
+        })
+        application.config.from_mapping(config)
+
+    install_http(application)
+    init_auth(application)
+    install_security(application)
+    application.register_blueprint(health_bp)
+    application.register_blueprint(imports_bp)
+    application.register_blueprint(proof_media_bp)
+
+    @application.get("/api/proof")
+    def proof_status():
+        return jsonify(public_proof())
+
+    @application.get("/api/proof/searches")
+    def history():
+        return jsonify(list_searches())
+
+    @application.post("/api/proof/searches")
+    def semantic_search():
+        require_csrf()
+        return jsonify(search_scenes(request.get_json()))
+
+    @application.get("/api/proof/search-operations")
+    def search_operations():
+        return jsonify(list_search_operations())
+
+    @application.get("/api/proof/readiness")
+    def current_proof_readiness():
+        return jsonify(proof_readiness())
+
+    @application.get("/api/proof/report")
+    def evidence():
+        return jsonify(report())
+
+    return application
 
 
-@app.errorhandler(ProofError)
-def expected_error(error):
-    return jsonify(error=error.message, code=error.code), error.status
-
-
-@app.errorhandler(ValidationError)
-def validation_error(_error):
-    return jsonify(error="Enter a description of 1–500 characters and a valid search modality.", code="invalid_query"), 400
-
-
-@app.errorhandler(HTTPException)
-def http_error(error):
-    return jsonify(error=error.description, code=f"http_{error.code}"), error.code
-
-
-@app.errorhandler(Exception)
-def unexpected_error(error):
-    # No exception repr: it may contain network credentials or private file URLs.
-    logger.error(json.dumps({"event": "request_failed", "request_id": getattr(request, "request_id", None),
-                             "type": type(error).__name__}))
-    return jsonify(error="The proof service could not complete this request.", code="internal_error"), 500
-
-
-from .auth import init_auth
-from .imports import imports_bp
-
-init_auth(app)
-app.register_blueprint(imports_bp)
+app = create_app()
 
 
 if __name__ == "__main__":

@@ -105,6 +105,25 @@ class ImportWorkerSafetyTests(unittest.TestCase):
         self.assertEqual("ready", job["state"])
         self.assertEqual(100, job["progress_percent"])
 
+    def test_idle_proof_frame_failure_is_isolated_and_redacted(self):
+        with patch("sceneit.proof_media.prepare_frames",
+                   side_effect=RuntimeError("private query / secret path")), \
+                patch.object(import_worker.logger, "warning") as warning:
+            self.assertFalse(import_worker.prepare_proof_frames())
+        message = warning.call_args.args[0]
+        self.assertIn("frame_preparation_failed", message)
+        self.assertNotIn("private query", message)
+        self.assertNotIn("secret path", message)
+
+    def test_worker_resource_lease_loss_fences_work(self):
+        connection = Mock()
+        connection.execute.return_value.fetchone.return_value = (True,)
+        guard = import_worker._WorkerLockGuard(
+            connection, resource_holder="resource-holder")
+        with patch("sceneit.import_worker.renew", return_value=False):
+            with self.assertRaises(import_worker.WorkerLockLost):
+                guard.check()
+
 
 if __name__ == "__main__":
     unittest.main()

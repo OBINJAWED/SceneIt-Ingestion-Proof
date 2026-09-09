@@ -5,6 +5,9 @@ never purchased again automatically; an operator must reconcile it.
 """
 import os
 import math
+import json
+import logging
+import signal
 import tempfile
 import threading
 import time
@@ -12,17 +15,17 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-import psycopg
-
-from .db import connection
+from .db import autocommit_connection, connection
 from .import_limits import (ABANDONED_UPLOAD_SECONDS, MAX_BYTES,
                             MAX_DURATION_SECONDS, MIN_DURATION_SECONDS)
 from .provider import ProviderError, TwelveLabsClient
+from .resources import ResourceExhausted, acquire, release, renew, shared_permit
 from .storage import private_object_path
 
 LEASE_SECONDS = 90
 PROCESSING_DEADLINE_SECONDS = 1800
 _active_worker_guard = None
+logger = logging.getLogger("sceneit.import_worker")
 
 
 class WorkerLockLost(RuntimeError):
@@ -522,10 +525,21 @@ def process_job(job, client=None):
                     owned_client = TwelveLabsClient()
                 _cancel(job, client or owned_client)
             elif job["state"] in ("queued", "resolving", "validating"):
-                _prepare_media(job)
+                with shared_permit(
+                        "media", participant=job["owner_id"],
+                        # The lease outlives the maximum accepted processing
+                        # age, so capacity cannot silently duplicate while an
+                        # admitted media boundary is still winding down.
+                        lease_seconds=PROCESSING_DEADLINE_SECONDS + 60):
+                    _prepare_media(job)
             else:
                 owned_client = None if client is not None else TwelveLabsClient()
                 _provider_step(job, client or owned_client)
+    except ResourceExhausted:
+        _update(
+            job, error_code="resource_busy",
+            status_message="Media processing capacity is busy; retry scheduled.",
+            next_attempt_at=datetime.now(timezone.utc) + timedelta(seconds=10))
     except ProviderError as exc:
         if exc.ambiguous:
             _fail(job, "provider_write_uncertain",
@@ -569,7 +583,16 @@ def process_job(job, client=None):
 
 def cleanup_expired():
     """Queue confirmed cleanup without deleting cumulative usage counters."""
+    # The existing always-on worker is also the bounded reconciliation clock
+    # for proof searches. This only changes database state; it never calls or
+    # retries the provider.
+    from .proof import reconcile_search_operations
+    reconcile_search_operations()
     with connection() as conn:
+        conn.execute(
+            "UPDATE sceneit_import_searches SET state='needs_review',"
+            "error_code='search_outcome_unknown',completed_at=now() "
+            "WHERE state='running' AND deadline_at<=now()")
         conn.execute(
             "UPDATE sceneit_imports SET state='cancel_requested',"
             "status_message='Retention expired; cleanup requested.',updated_at=now() "
@@ -592,8 +615,9 @@ def cleanup_expired():
 
 
 class _WorkerLockGuard:
-    def __init__(self, conn):
+    def __init__(self, conn, resource_holder=None):
         self.conn = conn
+        self.resource_holder = resource_holder
         self._mutex = threading.Lock()
 
     def check(self):
@@ -611,17 +635,27 @@ class _WorkerLockGuard:
                 "Private import worker advisory lock was lost") from None
         if not held:
             raise WorkerLockLost("Private import worker advisory lock was lost")
+        if self.resource_holder is not None:
+            try:
+                live = renew("import_worker", self.resource_holder)
+            except Exception:
+                raise WorkerLockLost(
+                    "Private import worker resource lease could not be renewed"
+                ) from None
+            if not live:
+                raise WorkerLockLost(
+                    "Private import worker resource lease was lost")
 
 
 @contextmanager
-def worker_lock():
-    with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+def worker_lock(resource_holder=None):
+    with autocommit_connection(application_name="sceneit-import-worker") as conn:
         locked = conn.execute(
             "SELECT pg_try_advisory_lock(hashtext('sceneit-private-import-worker'))"
         ).fetchone()[0]
         if not locked:
             raise RuntimeError("Another private import worker is active")
-        guard = _WorkerLockGuard(conn)
+        guard = _WorkerLockGuard(conn, resource_holder)
         try:
             guard.check()
             yield guard
@@ -634,23 +668,65 @@ def worker_lock():
                 pass
 
 
-def run_forever():
+def prepare_proof_frames():
+    """Best-effort idle work; failures never stop ingestion/reconciliation."""
+    try:
+        from .proof_media import prepare_frames
+        prepare_frames()
+        return True
+    except Exception:
+        # Never expose storage paths, provider data or query text from a
+        # background evidence failure.
+        logger.warning(json.dumps({
+            "event": "proof_frames_worker_error",
+            "code": "frame_preparation_failed",
+        }))
+        return False
+
+
+def run_forever(stop_event=None):
     global _active_worker_guard
-    with worker_lock() as guard:
-        _active_worker_guard = guard
-        try:
-            while True:
-                guard.check()
-                heartbeat()
-                cleanup_expired()
-                job = claim_job()
-                if job:
-                    process_job(job)
-                else:
-                    time.sleep(5)
-        finally:
-            _active_worker_guard = None
+    stop_event = stop_event if stop_event is not None else threading.Event()
+    holder = acquire("import_worker")
+    if holder is None:
+        raise RuntimeError("Private import worker capacity is exhausted")
+    try:
+        with worker_lock(holder) as guard:
+            _active_worker_guard = guard
+            try:
+                while not stop_event.is_set():
+                    guard.check()
+                    heartbeat()
+                    cleanup_expired()
+                    job = claim_job()
+                    if job:
+                        process_job(job)
+                    else:
+                        prepare_proof_frames()
+                        stop_event.wait(5)
+            finally:
+                _active_worker_guard = None
+    finally:
+        release("import_worker", holder)
+
+
+def main():
+    # Finish the current bounded cycle, then unwind provider/lock/permit owners.
+    # Default SIGTERM would bypass finally blocks and strand the worker permit.
+    stop_event = threading.Event()
+    previous = {}
+
+    def request_stop(_signum, _frame):
+        stop_event.set()
+
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        previous[signum] = signal.signal(signum, request_stop)
+    try:
+        run_forever(stop_event)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 if __name__ == "__main__":
-    run_forever()
+    main()

@@ -10,6 +10,8 @@ import type { AuthStateUser } from './authStateUser';
 export interface AuthState {
   /** @nullable */
   csrfToken: string | null;
+  /** Server-authoritative pilot admission. False for anonymous, denied, or indeterminate sessions. */
+  pilotAdmitted: boolean;
   /** @nullable */
   user: AuthStateUser;
 }

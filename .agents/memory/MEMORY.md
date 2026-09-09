@@ -3,3 +3,6 @@
 - [OIDC system trust](oidc-system-trust.md) — the test issuer may require runtime system CA trust; keep TLS and JWT verification enabled.
 - [Python workspace integrity](python-workspace-integrity.md) — installed-package metadata can outlive restored package contents; distinguish incomplete dependencies from code regressions.
 - [Quota-safe UI validation](ui-validation-boundaries.md) — use saved results and intercepted mutations for visual checks, not live provider work.
+- [Bounded external work](bounded-work.md) — HTTP timeouts and lease expiry do not prove termination; acknowledge cancellation before releasing capacity.
+- [Preview file boundaries](preview-file-boundaries.md) — Vite's default workspace access can bypass API admission; scope every preview service's filesystem.
+- [Semantic merge verification](semantic-merge-verification.md) — automatic reconciliation can silently corrupt Python test structure; validate discovery after merging.

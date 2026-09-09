@@ -21,7 +21,9 @@ from psycopg import sql
 from psycopg.rows import dict_row
 from werkzeug.exceptions import HTTPException
 
-from sceneit import import_limits, import_search, import_worker, imports
+from sceneit import import_limits, import_search, import_worker, imports, migrate, proof
+from sceneit.provider import ProviderError
+from sceneit.resources import configured_limit
 from sceneit.platforms import FileRequired, resolve_link
 
 
@@ -44,15 +46,9 @@ class PrivateImportTransactionTests(unittest.TestCase):
         try:
             migration_dir = Path(__file__).parents[1] / "sceneit" / "migrations"
             with cls._raw_connection() as conn:
-                for migration in sorted(migration_dir.glob("*.sql")):
-                    text = migration.read_text(encoding="utf-8")
-                    # The connection context owns the transaction.  This also
-                    # makes migrations containing explicit wrappers composable.
-                    lines = [
-                        line for line in text.splitlines()
-                        if line.strip().upper() not in {"BEGIN;", "COMMIT;"}
-                    ]
-                    conn.execute("\n".join(lines))
+                migrate.upgrade(
+                    conn=conn, directory=migration_dir,
+                    lock_timeout_seconds=5)
         except Exception:
             cls._drop_schema()
             raise
@@ -61,6 +57,8 @@ class PrivateImportTransactionTests(unittest.TestCase):
             patch("sceneit.imports.connection", cls._test_connection),
             patch("sceneit.import_search.connection", cls._test_connection),
             patch("sceneit.import_worker.connection", cls._test_connection),
+            patch("sceneit.proof.connection", cls._test_connection),
+            patch("sceneit.resources.connection", cls._test_connection),
         ]
         for patcher in cls.connection_patchers:
             patcher.start()
@@ -128,13 +126,25 @@ class PrivateImportTransactionTests(unittest.TestCase):
     def setUp(self):
         with self._test_connection() as conn:
             conn.execute(
-                "TRUNCATE sceneit_import_searches,sceneit_import_fingerprints,"
+                "TRUNCATE sceneit_searches,sceneit_proofs,"
+                "sceneit_resource_leases,sceneit_participant_throttles,"
+                "sceneit_import_searches,sceneit_import_fingerprints,"
                 "sceneit_imports,sceneit_import_usage CASCADE"
             )
             conn.execute(
                 "UPDATE sceneit_import_app_usage SET imports_used=0,searches_used=0,"
                 "worker_heartbeat_at=NULL WHERE singleton=true"
             )
+            conn.execute(
+                "INSERT INTO sceneit_proofs"
+                "(id,title,youtube_id,source_path,source_sha256,media,state,"
+                "message,index_name,index_id,asset_id,indexed_asset_id) VALUES "
+                "(%s,'Test proof','vLqagjJAvU8','attached_assets/test.mp4',"
+                "'proof-test-sha','{\"duration\":100,\"width\":640,"
+                "\"height\":360,\"size\":1000,\"hasAudio\":true}'::jsonb,"
+                "'ready','Ready','test-index-name','test-index','test-asset',"
+                "'test-indexed')",
+                (proof.PROOF_ID,))
 
     @staticmethod
     def headers(owner, csrf=True, **extra):
@@ -184,6 +194,188 @@ class PrivateImportTransactionTests(unittest.TestCase):
             return conn.execute(
                 "SELECT * FROM sceneit_imports WHERE id=%s", (import_id,)
             ).fetchone()
+
+    def fetch_proof_search(self):
+        with self._test_connection() as conn:
+            return conn.execute(
+                "SELECT * FROM sceneit_searches ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+
+    def proof_client(self, *, response=None, error=None):
+        client = Mock()
+        if error is not None:
+            client.search.side_effect = error
+        else:
+            client.search.return_value = response or {
+                "data": [{
+                    "video_id": "test-indexed", "start": 2, "end": 4,
+                    "confidence": "high",
+                }],
+                "page_info": {},
+            }
+        return client
+
+    def test_proof_ambiguous_and_unknown_outcomes_keep_quota_and_close(self):
+        cases = (
+            ProviderError("network_error", "safe", ambiguous=True),
+            RuntimeError("unexpected"),
+        )
+        for number, error in enumerate(cases):
+            with self.subTest(error=type(error).__name__):
+                client = self.proof_client(error=error)
+                with self.assertRaises(Exception):
+                    proof.search_scenes(
+                        {"query": f"uncertain {number}", "modality": "visual"},
+                        client_factory=Mock(return_value=client))
+                row = self.fetch_proof_search()
+                self.assertEqual("needs_review", row["state"])
+                self.assertEqual("search_outcome_unknown", row["error_code"])
+                client.close.assert_called_once()
+                retry_provider = Mock()
+                with self.assertRaises(proof.ProofError):
+                    proof.search_scenes(
+                        {"query": f"uncertain {number}", "modality": "visual"},
+                        client_factory=retry_provider)
+                retry_provider.assert_not_called()
+                with self._test_connection() as conn:
+                    conn.execute(
+                        "UPDATE sceneit_proofs SET last_search_at=NULL WHERE id=%s",
+                        (proof.PROOF_ID,))
+        with self._test_connection() as conn:
+            used = conn.execute(
+                "SELECT searches_used FROM sceneit_proofs WHERE id=%s",
+                (proof.PROOF_ID,)).fetchone()["searches_used"]
+        self.assertEqual(2, used)
+
+    def test_definitive_failure_is_not_refunded_and_client_closes(self):
+        client = self.proof_client(error=ProviderError(
+            "provider_http_400", "safe rejection", ambiguous=False))
+        with self.assertRaises(proof.ProofError):
+            proof.search_scenes(
+                {"query": "definitive", "modality": "visual"},
+                client_factory=Mock(return_value=client))
+        row = self.fetch_proof_search()
+        self.assertEqual("failed", row["state"])
+        self.assertEqual("failed", row["resolution"])
+        client.close.assert_called_once()
+        with self._test_connection() as conn:
+            used = conn.execute(
+                "SELECT searches_used FROM sceneit_proofs WHERE id=%s",
+                (proof.PROOF_ID,)).fetchone()["searches_used"]
+        self.assertEqual(1, used)
+
+    def test_malformed_confirmed_response_needs_review_and_closes(self):
+        client = self.proof_client(response={
+            "data": [{"video_id": "different-asset", "start": 2, "end": 4}],
+            "page_info": {},
+        })
+        with self.assertRaises(proof.ProofError):
+            proof.search_scenes(
+                {"query": "malformed mapping", "modality": "visual"},
+                client_factory=Mock(return_value=client))
+        row = self.fetch_proof_search()
+        self.assertEqual("needs_review", row["state"])
+        self.assertEqual("search_outcome_unknown", row["error_code"])
+        client.close.assert_called_once()
+
+    def test_operator_resolution_fences_late_success(self):
+        entered, release_response = threading.Event(), threading.Event()
+        client = self.proof_client()
+
+        def blocked_search(*_args, **_kwargs):
+            entered.set()
+            self.assertTrue(release_response.wait(5))
+            return {
+                "data": [{"video_id": "test-indexed", "start": 2, "end": 4}],
+                "page_info": {},
+            }
+
+        client.search.side_effect = blocked_search
+        outcome = []
+
+        def submit():
+            try:
+                proof.search_scenes(
+                    {"query": "late result", "modality": "visual"},
+                    client_factory=Mock(return_value=client))
+            except Exception as exc:
+                outcome.append(exc)
+
+        thread = threading.Thread(target=submit)
+        thread.start()
+        self.assertTrue(entered.wait(5))
+        running = self.fetch_proof_search()
+        proof.resolve_search_operation(running["id"], "confirmed_failed")
+        release_response.set()
+        thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(outcome)
+        final = self.fetch_proof_search()
+        self.assertEqual("failed", final["state"])
+        self.assertEqual("confirmed_failed", final["resolution"])
+        self.assertEqual(running["attempt_id"], final["attempt_id"])
+        client.close.assert_called_once()
+        with self._test_connection() as conn:
+            used = conn.execute(
+                "SELECT searches_used FROM sceneit_proofs WHERE id=%s",
+                (proof.PROOF_ID,)).fetchone()["searches_used"]
+        self.assertEqual(1, used)
+
+    def test_crashed_attempt_reconciles_without_refund_or_provider(self):
+        search_id, attempt_id = uuid.uuid4(), uuid.uuid4()
+        with self._test_connection() as conn:
+            conn.execute(
+                "UPDATE sceneit_proofs SET searches_used=1 WHERE id=%s",
+                (proof.PROOF_ID,))
+            conn.execute(
+                "INSERT INTO sceneit_searches"
+                "(id,proof_id,query,query_key,modality,attempt_id,deadline_at) "
+                "VALUES (%s,%s,'crashed','crashed','visual',%s,"
+                "now()-interval '1 second')",
+                (search_id, proof.PROOF_ID, attempt_id))
+        reconciled = proof.reconcile_search_operations()
+        self.assertEqual([str(search_id)], [item["id"] for item in reconciled])
+        row = self.fetch_proof_search()
+        self.assertEqual("needs_review", row["state"])
+        self.assertEqual("search_outcome_unknown", row["error_code"])
+        with self._test_connection() as conn:
+            used = conn.execute(
+                "SELECT searches_used FROM sceneit_proofs WHERE id=%s",
+                (proof.PROOF_ID,)).fetchone()["searches_used"]
+        self.assertEqual(1, used)
+
+    def test_saturation_spends_nothing_and_cached_duplicate_needs_no_permit(self):
+        first_client = self.proof_client()
+        first = proof.search_scenes(
+            {"query": "cached result", "modality": "visual"},
+            client_factory=Mock(return_value=first_client))
+        first_client.close.assert_called_once()
+        with self._test_connection() as conn:
+            for _ in range(configured_limit("search")):
+                conn.execute(
+                    "INSERT INTO sceneit_resource_leases"
+                    "(resource,holder,expires_at) "
+                    "VALUES ('search',%s,now()+interval '5 minutes')",
+                    (uuid.uuid4(),))
+        duplicate_provider = Mock()
+        self.assertEqual(
+            first,
+            proof.search_scenes(
+                {"query": "cached result", "modality": "visual"},
+                client_factory=duplicate_provider))
+        duplicate_provider.assert_not_called()
+        new_provider = Mock()
+        with self.assertRaises(proof.ProofError) as raised:
+            proof.search_scenes(
+                {"query": "new paid result", "modality": "visual"},
+                client_factory=new_provider)
+        self.assertEqual("busy", raised.exception.code)
+        new_provider.assert_not_called()
+        with self._test_connection() as conn:
+            used = conn.execute(
+                "SELECT searches_used FROM sceneit_proofs WHERE id=%s",
+                (proof.PROOF_ID,)).fetchone()["searches_used"]
+        self.assertEqual(1, used)
 
     def test_multiple_ready_imports_can_cancel_while_another_is_active(self):
         owner = "cleanup-owner"

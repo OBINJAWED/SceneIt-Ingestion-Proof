@@ -57,11 +57,13 @@ export function UploadPanel({
   }, [cancellationSignal, importId]);
 
   const reserveUpload = useReserveImportUpload({
-    request: { headers: { 'X-CSRF-Token': csrfToken || '' } }
+    request: { headers: { 'X-CSRF-Token': csrfToken || '' } },
+    mutation: { retry: false },
   });
 
   const completeUpload = useCompleteImportUpload({
-    request: { headers: { 'X-CSRF-Token': csrfToken || '' } }
+    request: { headers: { 'X-CSRF-Token': csrfToken || '' } },
+    mutation: { retry: false },
   });
 
   const handleFileDrop = (e: React.DragEvent) => {

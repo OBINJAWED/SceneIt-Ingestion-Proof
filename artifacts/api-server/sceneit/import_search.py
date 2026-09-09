@@ -3,7 +3,7 @@ import math
 import time
 import unicodedata
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from psycopg.types.json import Jsonb
 from pydantic import ValidationError
@@ -11,8 +11,9 @@ from pydantic import ValidationError
 from .db import connection
 from .import_limits import (ImportProblem, OWNER_SEARCH_LIMIT,
                             reserve_search_budget)
-from .proof import SceneQuery
+from .proof import SEARCH_DEADLINE_SECONDS, SceneQuery
 from .provider import ProviderError, TwelveLabsClient
+from .resources import ResourceExhausted, shared_permit
 
 
 def present_search(row):
@@ -87,12 +88,27 @@ def list_import_searches(owner_id, import_id):
 
 def search_import(owner_id, import_id, payload, client_factory=TwelveLabsClient):
     try:
+        with shared_permit(
+                "search", participant=owner_id,
+                lease_seconds=SEARCH_DEADLINE_SECONDS + 5):
+            return _search_import(
+                owner_id, import_id, payload, client_factory)
+    except ResourceExhausted:
+        raise ImportProblem(
+            "search_busy",
+            "Search capacity is busy. Please retry shortly.",
+            429) from None
+
+
+def _search_import(owner_id, import_id, payload, client_factory):
+    try:
         query = SceneQuery.model_validate(payload)
     except ValidationError:
         raise ImportProblem("invalid_query",
                             "Enter a description of 1–500 characters and a valid modality.") from None
     key = unicodedata.normalize("NFKC", query.query).casefold()
     search_id = uuid.uuid4()
+    attempt_id = uuid.uuid4()
     with connection() as conn:
         conn.execute(
             "SELECT pg_advisory_xact_lock(hashtext('sceneit-import-search-app'))")
@@ -110,6 +126,10 @@ def search_import(owner_id, import_id, payload, client_factory=TwelveLabsClient)
         if query.modality in ("audio", "both") and not item["has_audio"]:
             raise ImportProblem("audio_unavailable",
                                 "This video has no searchable audio; use visual search.", 400)
+        conn.execute(
+            "UPDATE sceneit_import_searches SET state='needs_review',"
+            "error_code='search_outcome_unknown',completed_at=now() "
+            "WHERE state='running' AND deadline_at<=now()")
         existing = conn.execute(
             "SELECT * FROM sceneit_import_searches WHERE owner_id=%s AND import_id=%s "
             "AND query_key=%s AND modality=%s",
@@ -139,35 +159,84 @@ def search_import(owner_id, import_id, payload, client_factory=TwelveLabsClient)
         ok, code = reserve_search_budget(conn, owner_id)
         if not ok:
             raise ImportProblem(code, "The cumulative search allowance has been reached.", 429)
-        conn.execute(
+        operation = conn.execute(
             "INSERT INTO sceneit_import_searches"
-            "(id,import_id,owner_id,query,query_key,modality,provider_write_marker) "
-            "VALUES (%s,%s,%s,%s,%s,%s,'submitting')",
-            (search_id, import_id, owner_id, query.query, key, query.modality))
+            "(id,import_id,owner_id,query,query_key,modality,"
+            "provider_write_marker,attempt_id,deadline_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,'submitting',%s,"
+            "now()+(%s * interval '1 second')) RETURNING deadline_at",
+            (search_id, import_id, owner_id, query.query, key, query.modality,
+             attempt_id, SEARCH_DEADLINE_SECONDS)).fetchone()
     started = time.monotonic()
     client = None
     try:
         client = client_factory()
+        remaining = (
+            operation["deadline_at"] - datetime.now(timezone.utc)
+        ).total_seconds()
         raw = client.search(item["index_id"], query.query, query.modality,
-                            item["indexed_asset_id"])
+                            item["indexed_asset_id"],
+                            timeout_seconds=remaining)
         matches, partial = normalize_import_matches(raw, item, search_id)
         with connection() as conn:
             row = conn.execute(
                 "UPDATE sceneit_import_searches SET state='done',matches=%s,"
-                "partial=%s,latency_ms=%s,completed_at=now(),provider_write_marker=NULL "
-                "WHERE id=%s AND owner_id=%s RETURNING *",
+                "partial=%s,latency_ms=%s,completed_at=now(),resolved_at=now(),"
+                "resolution='completed',provider_write_marker=NULL "
+                "WHERE id=%s AND owner_id=%s AND attempt_id=%s "
+                "AND state='running' AND deadline_at>now() RETURNING *",
                 (Jsonb(matches), partial, int((time.monotonic()-started)*1000),
-                 search_id, owner_id)).fetchone()
+                  search_id, owner_id, attempt_id)).fetchone()
+        if not row:
+            raise ImportProblem(
+                "search_needs_review",
+                "The response arrived after the safe completion window and requires review.",
+                409)
         return present_search(row)
     except (ProviderError, ImportProblem) as exc:
-        uncertain = isinstance(exc, ProviderError) and exc.ambiguous
+        uncertain = (
+            isinstance(exc, ProviderError) and exc.ambiguous
+        ) or isinstance(exc, ImportProblem)
         with connection() as conn:
             conn.execute(
                 "UPDATE sceneit_import_searches SET state=%s,error_code=%s,"
-                "completed_at=now() WHERE id=%s",
-                ("needs_review" if uncertain else "failed", exc.code, search_id))
-        status = 503 if uncertain else 502 if isinstance(exc, ProviderError) else exc.status
+                "completed_at=now(),"
+                "resolved_at=CASE WHEN %s='failed' THEN now() ELSE NULL END,"
+                "resolution=CASE WHEN %s='failed' THEN 'failed' ELSE NULL END "
+                "WHERE id=%s AND attempt_id=%s "
+                "AND state='running' AND deadline_at>now()",
+                ("needs_review" if uncertain else "failed",
+                 "search_outcome_unknown" if uncertain else exc.code,
+                 "needs_review" if uncertain else "failed",
+                 "needs_review" if uncertain else "failed",
+                 search_id, attempt_id))
+            conn.execute(
+                "UPDATE sceneit_import_searches SET state='needs_review',"
+                "error_code='search_outcome_unknown',completed_at=now() "
+                "WHERE id=%s AND attempt_id=%s AND state='running' "
+                "AND deadline_at<=now()",
+                (search_id, attempt_id))
+        status = (
+            503 if isinstance(exc, ProviderError) and uncertain
+            else 502 if isinstance(exc, ProviderError)
+            else exc.status
+        )
         raise ImportProblem(exc.code, exc.message, status) from None
+    except Exception:
+        with connection() as conn:
+            conn.execute(
+                "UPDATE sceneit_import_searches SET state='needs_review',"
+                "error_code='search_outcome_unknown',completed_at=now() "
+                "WHERE id=%s AND attempt_id=%s AND state='running' "
+                "AND deadline_at>now()",
+                (search_id, attempt_id))
+            conn.execute(
+                "UPDATE sceneit_import_searches SET state='needs_review',"
+                "error_code='search_outcome_unknown',completed_at=now() "
+                "WHERE id=%s AND attempt_id=%s AND state='running' "
+                "AND deadline_at<=now()",
+                (search_id, attempt_id))
+        raise
     finally:
         if client is not None:
             client.close()

@@ -8,8 +8,22 @@
 import * as zod from 'zod';
 
 
+/**
+ * @summary Read the current pilot session and admission decision
+ */
+export const GetAuthSessionResponse = zod.object({
+  "csrfToken": zod.string().nullable(),
+  "pilotAdmitted": zod.boolean().describe('Server-authoritative pilot admission. False for anonymous, denied, or indeterminate sessions.'),
+  "user": zod.object({
+  "id": zod.string(),
+  "firstName": zod.string().nullable()
+}).nullable()
+})
+
+
 export const GetCurrentAuthUserResponse = zod.object({
   "csrfToken": zod.string().nullable(),
+  "pilotAdmitted": zod.boolean().describe('Server-authoritative pilot admission. False for anonymous, denied, or indeterminate sessions.'),
   "user": zod.object({
   "id": zod.string(),
   "firstName": zod.string().nullable()
@@ -430,6 +444,43 @@ export const GetProofResponse = zod.object({
 
 
 /**
+ * @summary Read proof search and media readiness without probing providers
+ */
+export const getProofReadinessResponseSearchesUsedMin = 0;
+
+export const getProofReadinessResponseSearchLimitMin = 0;
+
+export const getProofReadinessResponseRetryAfterSecondsMin = 0;
+
+
+
+export const GetProofReadinessResponse = zod.object({
+  "state": zod.enum(['ready', 'admission_required', 'quota_exhausted', 'processing', 'uncertain', 'service_unavailable']),
+  "proofState": zod.enum(['queued', 'uploading', 'processing', 'indexing', 'ready', 'failed', 'needs_review']),
+  "searchAvailable": zod.boolean(),
+  "searchesUsed": zod.number().int().min(getProofReadinessResponseSearchesUsedMin),
+  "searchLimit": zod.number().int().min(getProofReadinessResponseSearchLimitMin),
+  "detail": zod.string().nullable(),
+  "retryAfterSeconds": zod.number().int().min(getProofReadinessResponseRetryAfterSecondsMin).nullable()
+})
+
+
+/**
+ * @summary List bounded search attempts for operator-visible reconciliation
+ */
+export const ListProofSearchOperationsResponseItem = zod.object({
+  "id": zod.string().uuid(),
+  "state": zod.enum(['running', 'done', 'failed', 'needs_review']),
+  "attemptId": zod.string().uuid().nullable(),
+  "createdAt": zod.coerce.date(),
+  "deadlineAt": zod.coerce.date().nullable(),
+  "completedAt": zod.coerce.date().nullable(),
+  "errorCode": zod.string().nullable()
+})
+export const ListProofSearchOperationsResponse = zod.array(ListProofSearchOperationsResponseItem)
+
+
+/**
  * @summary Previously executed real searches, newest first
  */
 export const ListProofSearchesResponseItem = zod.object({
@@ -481,6 +532,21 @@ export const SearchScenesResponse = zod.object({
   "youtubeUrl": zod.string()
 }))
 })
+
+
+/**
+ * @summary Read a retained source frame for a shared proof result
+ */
+export const getProofFramePathRankMax = 5;
+
+
+
+export const GetProofFrameParams = zod.object({
+  "searchId": zod.coerce.string().uuid(),
+  "rank": zod.coerce.number().int().min(1).max(getProofFramePathRankMax)
+})
+
+export const GetProofFrameResponse = zod.unknown()
 
 
 /**
@@ -546,6 +612,22 @@ export const StreamProofSourceResponse = zod.unknown()
  */
 export const HealthCheckResponse = zod.object({
   "status": zod.string()
+})
+
+
+/**
+ * @summary Check bounded configuration, database, and schema readiness
+ */
+export const ReadinessCheckResponse = zod.object({
+  "status": zod.enum(['ready', 'not_ready']),
+  "checks": zod.object({
+  "config": zod.enum(['ok', 'invalid']),
+  "database": zod.enum(['ok', 'unavailable']),
+  "schema": zod.enum(['ok', 'incompatible'])
+}),
+  "external": zod.object({
+  "provider": zod.enum(['not_probed'])
+})
 })
 
 

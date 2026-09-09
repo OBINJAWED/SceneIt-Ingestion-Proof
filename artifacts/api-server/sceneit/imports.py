@@ -1,9 +1,6 @@
 """Private import HTTP API. This blueprint never touches the legacy proof."""
 import io
-import os
 import subprocess
-import tempfile
-import threading
 import uuid
 from datetime import datetime
 
@@ -22,7 +19,6 @@ from .import_search import list_import_searches, search_import
 from .storage import private_object_path
 
 imports_bp = Blueprint("imports", __name__)
-_frame_slots = threading.BoundedSemaphore(2)
 
 
 class CreateImport(BaseModel):
@@ -256,9 +252,11 @@ def reserve_upload(import_id):
                 "UPDATE sceneit_imports SET budget_reserved=true,"
                 "status_message='Private upload reservation is temporarily unavailable.',"
                 "updated_at=now() WHERE id=%s", (import_id,))
-            return jsonify(
-                error="A constrained private upload reservation could not be prepared.",
-                code="upload_reservation_unavailable"), 503
+            from .http import problem_response
+            return problem_response(
+                "A constrained private upload reservation could not be prepared.",
+                "upload_reservation_unavailable", 503,
+            )
         session_reference = reservation.pop("sessionReference")
         display_title = row["title"]
         if row["source_kind"] == "file":
@@ -295,9 +293,11 @@ def complete_upload(import_id):
                 "UPDATE sceneit_imports SET state='cancel_requested',"
                 "status_message='Upload reservation expired; cleanup requested.',"
                 "updated_at=now() WHERE id=%s", (import_id,))
-            return jsonify(
-                error="This upload reservation expired. Select the MP4 again.",
-                code="upload_reservation_expired"), 409
+            from .http import problem_response
+            return problem_response(
+                "This upload reservation expired. Select the MP4 again.",
+                "upload_reservation_expired", 409,
+            )
         try:
             info = object_info(row["upload_path"])
         except Exception:
@@ -395,38 +395,25 @@ def import_frame(import_id, search_id, rank):
     if row.get("expires_at") and row["expires_at"] <= datetime.now(
             row["expires_at"].tzinfo):
         raise ImportProblem("import_expired", "Import expired.", 410)
-    if not _frame_slots.acquire(False):
-        raise ImportProblem("frame_busy", "Frame extraction is busy.", 429)
-    path = None
     try:
-        from .private_storage import download_object
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp:
-            path = temp.name
-        download_object(row["media_path"], path, max_bytes=MAX_BYTES,
-                        generation=row["media_generation"])
+        from .media import private_frame
         match = row["matches"][rank-1]
         midpoint = (match["startSeconds"] + match["endSeconds"]) / 2
-        output = subprocess.run(
-            ["ffmpeg", "-v", "error", "-ss", str(midpoint), "-i", path,
-             "-frames:v", "1", "-vf", "scale=640:-2", "-f", "image2pipe",
-             "-vcodec", "mjpeg", "pipe:1"], capture_output=True, timeout=20,
-            check=True).stdout
+        output = private_frame(row["media_path"], row["media_generation"], midpoint)
         if not output:
             raise ImportProblem("frame_unavailable", "Source frame is unavailable.", 503)
         response = send_file(io.BytesIO(output), mimetype="image/jpeg")
         response.headers["Cache-Control"] = "private, no-store"
         return response
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, RuntimeError) as error:
+        from .resources import ResourceExhausted
+        if isinstance(error, ResourceExhausted):
+            raise ImportProblem("frame_busy", "Frame extraction is busy. Please refresh later.", 429) from None
         raise ImportProblem("frame_unavailable", "Source frame is unavailable.", 503) from None
-    finally:
-        if path:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
-        _frame_slots.release()
 
 
 @imports_bp.errorhandler(ImportProblem)
 def import_error(error):
-    return jsonify(error=error.message, code=error.code), error.status
+    from .http import problem_response
+
+    return problem_response(error.message, error.code, error.status)

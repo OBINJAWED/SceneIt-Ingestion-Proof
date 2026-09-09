@@ -13,8 +13,8 @@ import time
 
 def commands():
     return [
-        [sys.executable, "-m", "gunicorn", "--bind", f"0.0.0.0:{os.getenv('PORT', '8080')}",
-         "--workers", "2", "--threads", "2", "--timeout", "180", "sceneit.server:app"],
+        [sys.executable, "-m", "gunicorn", "--config", "sceneit/gunicorn.conf.py",
+         "sceneit.server:app"],
         [sys.executable, "-m", "sceneit.import_worker"],
     ]
 
@@ -43,7 +43,8 @@ def supervise(process_commands=None):
                 child.terminate()
         for child in children:
             try:
-                child.wait(timeout=10)
+                # Gunicorn is allowed its full configured graceful shutdown.
+                child.wait(timeout=95)
             except subprocess.TimeoutExpired:
                 child.kill()
                 child.wait()

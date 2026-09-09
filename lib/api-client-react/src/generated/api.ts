@@ -32,9 +32,13 @@ import type {
   Logout200,
   PlaybackAuthorization,
   Proof,
+  ProofReadiness,
   ProofReport,
+  ProtectedFailureResponse,
+  ReadinessStatus,
   SceneQuery,
   SceneSearch,
+  SearchOperation,
   UploadRequest,
   UploadReservation,
   VideoImport
@@ -66,6 +70,83 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getGetAuthSessionUrl = () => {
+
+
+
+
+  return `/api/auth/session`
+}
+
+/**
+ * @summary Read the current pilot session and admission decision
+ */
+export const getAuthSession = async ( options?: Parameters<typeof customFetch>[1]): Promise<AuthState> => {
+
+  return customFetch<AuthState>(getGetAuthSessionUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAuthSessionQueryKey = () => {
+    return [
+    `/api/auth/session`
+    ] as const;
+    }
+
+
+export const getGetAuthSessionQueryOptions = <TData = Awaited<ReturnType<typeof getAuthSession>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAuthSession>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAuthSessionQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAuthSession>>> = ({ signal }) => getAuthSession({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAuthSession>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAuthSessionQueryResult = NonNullable<Awaited<ReturnType<typeof getAuthSession>>>
+export type GetAuthSessionQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Read the current pilot session and admission decision
+ */
+
+export function useGetAuthSession<TData = Awaited<ReturnType<typeof getAuthSession>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAuthSession>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAuthSessionQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetCurrentAuthUserUrl = () => {
 
@@ -1219,7 +1300,7 @@ export const getGetProofQueryKey = () => {
     }
 
 
-export const getGetProofQueryOptions = <TData = Awaited<ReturnType<typeof getProof>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProof>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetProofQueryOptions = <TData = Awaited<ReturnType<typeof getProof>>, TError = ErrorType<ProtectedFailureResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProof>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -1238,19 +1319,173 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetProofQueryResult = NonNullable<Awaited<ReturnType<typeof getProof>>>
-export type GetProofQueryError = ErrorType<unknown>
+export type GetProofQueryError = ErrorType<ProtectedFailureResponse>
 
 
 /**
  * @summary Read the current one-video proof and its measured checks
  */
 
-export function useGetProof<TData = Awaited<ReturnType<typeof getProof>>, TError = ErrorType<unknown>>(
+export function useGetProof<TData = Awaited<ReturnType<typeof getProof>>, TError = ErrorType<ProtectedFailureResponse>>(
   options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProof>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetProofQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetProofReadinessUrl = () => {
+
+
+
+
+  return `/api/proof/readiness`
+}
+
+/**
+ * @summary Read proof search and media readiness without probing providers
+ */
+export const getProofReadiness = async ( options?: Parameters<typeof customFetch>[1]): Promise<ProofReadiness> => {
+
+  return customFetch<ProofReadiness>(getGetProofReadinessUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProofReadinessQueryKey = () => {
+    return [
+    `/api/proof/readiness`
+    ] as const;
+    }
+
+
+export const getGetProofReadinessQueryOptions = <TData = Awaited<ReturnType<typeof getProofReadiness>>, TError = ErrorType<ProtectedFailureResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProofReadiness>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProofReadinessQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProofReadiness>>> = ({ signal }) => getProofReadiness({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProofReadiness>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProofReadinessQueryResult = NonNullable<Awaited<ReturnType<typeof getProofReadiness>>>
+export type GetProofReadinessQueryError = ErrorType<ProtectedFailureResponse>
+
+
+/**
+ * @summary Read proof search and media readiness without probing providers
+ */
+
+export function useGetProofReadiness<TData = Awaited<ReturnType<typeof getProofReadiness>>, TError = ErrorType<ProtectedFailureResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProofReadiness>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProofReadinessQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListProofSearchOperationsUrl = () => {
+
+
+
+
+  return `/api/proof/search-operations`
+}
+
+/**
+ * @summary List bounded search attempts for operator-visible reconciliation
+ */
+export const listProofSearchOperations = async ( options?: Parameters<typeof customFetch>[1]): Promise<SearchOperation[]> => {
+
+  return customFetch<SearchOperation[]>(getListProofSearchOperationsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListProofSearchOperationsQueryKey = () => {
+    return [
+    `/api/proof/search-operations`
+    ] as const;
+    }
+
+
+export const getListProofSearchOperationsQueryOptions = <TData = Awaited<ReturnType<typeof listProofSearchOperations>>, TError = ErrorType<ProtectedFailureResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProofSearchOperations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProofSearchOperationsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProofSearchOperations>>> = ({ signal }) => listProofSearchOperations({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProofSearchOperations>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListProofSearchOperationsQueryResult = NonNullable<Awaited<ReturnType<typeof listProofSearchOperations>>>
+export type ListProofSearchOperationsQueryError = ErrorType<ProtectedFailureResponse>
+
+
+/**
+ * @summary List bounded search attempts for operator-visible reconciliation
+ */
+
+export function useListProofSearchOperations<TData = Awaited<ReturnType<typeof listProofSearchOperations>>, TError = ErrorType<ProtectedFailureResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProofSearchOperations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListProofSearchOperationsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -1296,7 +1531,7 @@ export const getListProofSearchesQueryKey = () => {
     }
 
 
-export const getListProofSearchesQueryOptions = <TData = Awaited<ReturnType<typeof listProofSearches>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProofSearches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getListProofSearchesQueryOptions = <TData = Awaited<ReturnType<typeof listProofSearches>>, TError = ErrorType<ProtectedFailureResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProofSearches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -1315,14 +1550,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type ListProofSearchesQueryResult = NonNullable<Awaited<ReturnType<typeof listProofSearches>>>
-export type ListProofSearchesQueryError = ErrorType<unknown>
+export type ListProofSearchesQueryError = ErrorType<ProtectedFailureResponse>
 
 
 /**
  * @summary Previously executed real searches, newest first
  */
 
-export function useListProofSearches<TData = Awaited<ReturnType<typeof listProofSearches>>, TError = ErrorType<unknown>>(
+export function useListProofSearches<TData = Awaited<ReturnType<typeof listProofSearches>>, TError = ErrorType<ProtectedFailureResponse>>(
   options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProofSearches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
@@ -1366,7 +1601,7 @@ export const searchScenes = async (sceneQuery: SceneQuery, options?: Parameters<
 
 
 
-export const getSearchScenesMutationOptions = <TError = ErrorType<FailureResponse>,
+export const getSearchScenesMutationOptions = <TError = ErrorType<FailureResponse | ProtectedFailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchScenes>>, TError,{data: BodyType<SceneQuery>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof searchScenes>>, TError,{data: BodyType<SceneQuery>}, TContext> => {
 
@@ -1395,12 +1630,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type SearchScenesMutationResult = NonNullable<Awaited<ReturnType<typeof searchScenes>>>
     export type SearchScenesMutationBody = BodyType<SceneQuery>
-    export type SearchScenesMutationError = ErrorType<FailureResponse>
+    export type SearchScenesMutationError = ErrorType<FailureResponse | ProtectedFailureResponse>
 
     /**
  * @summary Search the single indexed video using Twelve Labs
  */
-export const useSearchScenes = <TError = ErrorType<FailureResponse>,
+export const useSearchScenes = <TError = ErrorType<FailureResponse | ProtectedFailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchScenes>>, TError,{data: BodyType<SceneQuery>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof searchScenes>>,
@@ -1410,6 +1645,88 @@ export const useSearchScenes = <TError = ErrorType<FailureResponse>,
       > => {
       return useMutation(getSearchScenesMutationOptions(options));
     }
+
+export const getGetProofFrameUrl = (searchId: string,
+    rank: number,) => {
+
+
+
+
+  return `/api/proof/searches/${searchId}/frames/${rank}`
+}
+
+/**
+ * @summary Read a retained source frame for a shared proof result
+ */
+export const getProofFrame = async (searchId: string,
+    rank: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetProofFrameUrl(searchId,rank),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProofFrameQueryKey = (searchId: string,
+    rank: number,) => {
+    return [
+    `/api/proof/searches/${searchId}/frames/${rank}`
+    ] as const;
+    }
+
+
+export const getGetProofFrameQueryOptions = <TData = Awaited<ReturnType<typeof getProofFrame>>, TError = ErrorType<ProtectedFailureResponse>>(searchId: string,
+    rank: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProofFrame>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProofFrameQueryKey(searchId,rank);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProofFrame>>> = ({ signal }) => getProofFrame(searchId,rank, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: searchId !== null && searchId !== undefined && rank !== null && rank !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProofFrame>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProofFrameQueryResult = NonNullable<Awaited<ReturnType<typeof getProofFrame>>>
+export type GetProofFrameQueryError = ErrorType<ProtectedFailureResponse>
+
+
+/**
+ * @summary Read a retained source frame for a shared proof result
+ */
+
+export function useGetProofFrame<TData = Awaited<ReturnType<typeof getProofFrame>>, TError = ErrorType<ProtectedFailureResponse>>(
+ searchId: string,
+    rank: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProofFrame>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProofFrameQueryOptions(searchId,rank,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetProofReportUrl = () => {
 
@@ -1444,7 +1761,7 @@ export const getGetProofReportQueryKey = () => {
     }
 
 
-export const getGetProofReportQueryOptions = <TData = Awaited<ReturnType<typeof getProofReport>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProofReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetProofReportQueryOptions = <TData = Awaited<ReturnType<typeof getProofReport>>, TError = ErrorType<ProtectedFailureResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProofReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -1463,14 +1780,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetProofReportQueryResult = NonNullable<Awaited<ReturnType<typeof getProofReport>>>
-export type GetProofReportQueryError = ErrorType<unknown>
+export type GetProofReportQueryError = ErrorType<ProtectedFailureResponse>
 
 
 /**
  * @summary Download measured proof evidence as JSON
  */
 
-export function useGetProofReport<TData = Awaited<ReturnType<typeof getProofReport>>, TError = ErrorType<unknown>>(
+export function useGetProofReport<TData = Awaited<ReturnType<typeof getProofReport>>, TError = ErrorType<ProtectedFailureResponse>>(
   options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProofReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
@@ -1521,7 +1838,7 @@ export const getStreamProofSourceQueryKey = () => {
     }
 
 
-export const getStreamProofSourceQueryOptions = <TData = Awaited<ReturnType<typeof streamProofSource>>, TError = ErrorType<FailureResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamProofSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getStreamProofSourceQueryOptions = <TData = Awaited<ReturnType<typeof streamProofSource>>, TError = ErrorType<ProtectedFailureResponse | FailureResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamProofSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -1540,14 +1857,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type StreamProofSourceQueryResult = NonNullable<Awaited<ReturnType<typeof streamProofSource>>>
-export type StreamProofSourceQueryError = ErrorType<FailureResponse>
+export type StreamProofSourceQueryError = ErrorType<ProtectedFailureResponse | FailureResponse>
 
 
 /**
  * @summary Stream the rights-approved original with HTTP byte-range support
  */
 
-export function useStreamProofSource<TData = Awaited<ReturnType<typeof streamProofSource>>, TError = ErrorType<FailureResponse>>(
+export function useStreamProofSource<TData = Awaited<ReturnType<typeof streamProofSource>>, TError = ErrorType<ProtectedFailureResponse | FailureResponse>>(
   options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamProofSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
@@ -1631,6 +1948,83 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getHealthCheckQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReadinessCheckUrl = () => {
+
+
+
+
+  return `/api/readyz`
+}
+
+/**
+ * @summary Check bounded configuration, database, and schema readiness
+ */
+export const readinessCheck = async ( options?: Parameters<typeof customFetch>[1]): Promise<ReadinessStatus> => {
+
+  return customFetch<ReadinessStatus>(getReadinessCheckUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getReadinessCheckQueryKey = () => {
+    return [
+    `/api/readyz`
+    ] as const;
+    }
+
+
+export const getReadinessCheckQueryOptions = <TData = Awaited<ReturnType<typeof readinessCheck>>, TError = ErrorType<ReadinessStatus>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof readinessCheck>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getReadinessCheckQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof readinessCheck>>> = ({ signal }) => readinessCheck({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof readinessCheck>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ReadinessCheckQueryResult = NonNullable<Awaited<ReturnType<typeof readinessCheck>>>
+export type ReadinessCheckQueryError = ErrorType<ReadinessStatus>
+
+
+/**
+ * @summary Check bounded configuration, database, and schema readiness
+ */
+
+export function useReadinessCheck<TData = Awaited<ReturnType<typeof readinessCheck>>, TError = ErrorType<ReadinessStatus>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof readinessCheck>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getReadinessCheckQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

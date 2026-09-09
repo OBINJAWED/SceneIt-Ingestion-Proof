@@ -177,14 +177,16 @@ def require_csrf():
         abort(403, description="Cross-site request rejected.")
 
 
+@auth_bp.get("/api/auth/session")
 @auth_bp.get("/api/auth/user")
 def current_user():
     session = getattr(g, "auth_session", None)
     if not session:
-        return jsonify(user=None, csrfToken=None)
+        return jsonify(user=None, csrfToken=None, pilotAdmitted=False)
     return jsonify(
         user={"id": session["user_id"], "firstName": session["first_name"]},
         csrfToken=session["csrf_token"],
+        pilotAdmitted=bool(getattr(g, "pilot_admitted", False)),
     )
 
 
@@ -295,14 +297,20 @@ def logout():
 
 def init_auth(app):
     """Install auth state loading and routes on a Flask application."""
-    secret = os.environ.get("SESSION_SECRET")
+    secret = app.config.get("SESSION_SECRET") or os.environ.get("SESSION_SECRET")
     if not secret or len(secret) < 32:
         raise RuntimeError("SESSION_SECRET must contain at least 32 characters")
     app.config["SESSION_SECRET"] = secret
 
     @app.before_request
     def load_auth_session():
-        # In particular, anonymous /api/auth/user performs no database access.
-        g.auth_session = _session_from_cookie()
+        # Health, login and callback are public and never pay for a session lookup.
+        needs_session = (
+            request.path == "/api/auth/user"
+            or request.path == "/api/auth/session"
+            or request.path == "/api/logout"
+            or request.path.startswith(("/api/proof", "/api/imports"))
+        )
+        g.auth_session = _session_from_cookie() if needs_session else None
 
     app.register_blueprint(auth_bp)

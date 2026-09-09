@@ -11,6 +11,17 @@ tags:
   - name: health
     description: Health operations
 paths:
+  /auth/session:
+    get:
+      operationId: getAuthSession
+      summary: Read the current pilot session and admission decision
+      responses:
+        "200":
+          description: Current session, admission decision, and CSRF token; never cached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthState"
   /auth/user:
     get:
       operationId: getCurrentAuthUser
@@ -227,6 +238,7 @@ paths:
       operationId: getProof
       tags: [proof]
       summary: Read the current one-video proof and its measured checks
+      security: [{ sessionCookie: [] }]
       responses:
         "200":
           description: Current proof
@@ -234,11 +246,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Proof"
+        "401": { $ref: "#/components/responses/ProtectedFailure" }
+        "403": { $ref: "#/components/responses/ProtectedFailure" }
+        "503": { $ref: "#/components/responses/ProtectedFailure" }
+  /proof/readiness:
+    get:
+      operationId: getProofReadiness
+      tags: [proof]
+      summary: Read proof search and media readiness without probing providers
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Current proof readiness and degradation state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProofReadiness" }
+        "401": { $ref: "#/components/responses/ProtectedFailure" }
+        "403": { $ref: "#/components/responses/ProtectedFailure" }
+        "503": { $ref: "#/components/responses/ProtectedFailure" }
+  /proof/search-operations:
+    get:
+      operationId: listProofSearchOperations
+      tags: [proof]
+      summary: List bounded search attempts for operator-visible reconciliation
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Search operations, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SearchOperation" }
+        "401": { $ref: "#/components/responses/ProtectedFailure" }
+        "403": { $ref: "#/components/responses/ProtectedFailure" }
+        "503": { $ref: "#/components/responses/ProtectedFailure" }
   /proof/searches:
     get:
       operationId: listProofSearches
       tags: [proof]
       summary: Previously executed real searches, newest first
+      security: [{ sessionCookie: [] }]
       responses:
         "200":
           description: Search history
@@ -248,10 +296,14 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/SceneSearch"
+        "401": { $ref: "#/components/responses/ProtectedFailure" }
+        "403": { $ref: "#/components/responses/ProtectedFailure" }
+        "503": { $ref: "#/components/responses/ProtectedFailure" }
     post:
       operationId: searchScenes
       tags: [proof]
       summary: Search the single indexed video using Twelve Labs
+      security: [{ sessionCookie: [], csrfToken: [] }]
       requestBody:
         required: true
         content:
@@ -274,12 +326,33 @@ paths:
         "502":
           $ref: "#/components/responses/Failure"
         "503":
-          $ref: "#/components/responses/Failure"
+          $ref: "#/components/responses/ProtectedFailure"
+        "401": { $ref: "#/components/responses/ProtectedFailure" }
+        "403": { $ref: "#/components/responses/ProtectedFailure" }
+  /proof/searches/{searchId}/frames/{rank}:
+    parameters:
+      - { name: searchId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: rank, in: path, required: true, schema: { type: integer, minimum: 1, maximum: 5 } }
+    get:
+      operationId: getProofFrame
+      tags: [proof]
+      summary: Read a retained source frame for a shared proof result
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: JPEG source frame
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/ProtectedFailure" }
+        "403": { $ref: "#/components/responses/ProtectedFailure" }
+        "404": { $ref: "#/components/responses/ProtectedFailure" }
   /proof/report:
     get:
       operationId: getProofReport
       tags: [proof]
       summary: Download measured proof evidence as JSON
+      security: [{ sessionCookie: [] }]
       responses:
         "200":
           description: Proof evidence
@@ -287,11 +360,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProofReport"
+        "401": { $ref: "#/components/responses/ProtectedFailure" }
+        "403": { $ref: "#/components/responses/ProtectedFailure" }
+        "503": { $ref: "#/components/responses/ProtectedFailure" }
   /proof/source:
     get:
       operationId: streamProofSource
       tags: [proof]
       summary: Stream the rights-approved original with HTTP byte-range support
+      security: [{ sessionCookie: [] }]
       responses:
         "200":
           description: Complete original source
@@ -306,7 +383,9 @@ paths:
         "404":
           $ref: "#/components/responses/Failure"
         "416":
-          $ref: "#/components/responses/Failure"
+          $ref: "#/components/responses/ProtectedFailure"
+        "401": { $ref: "#/components/responses/ProtectedFailure" }
+        "403": { $ref: "#/components/responses/ProtectedFailure" }
   /healthz:
     get:
       operationId: healthCheck
@@ -320,6 +399,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /readyz:
+    get:
+      operationId: readinessCheck
+      tags: [health]
+      summary: Check bounded configuration, database, and schema readiness
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReadinessStatus" }
+        "503":
+          description: Service is not ready
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReadinessStatus" }
 components:
   securitySchemes:
     sessionCookie: { type: apiKey, in: cookie, name: __Host-sceneit_session }
@@ -342,6 +437,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ApiFailure"
+    ProtectedFailure:
+      description: Typed protected-resource failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProtectedApiFailure"
   schemas:
     EmptyRequest:
       type: object
@@ -354,9 +455,12 @@ components:
         authorized: { type: boolean }
     AuthState:
       type: object
-      required: [user, csrfToken]
+      required: [user, csrfToken, pilotAdmitted]
       properties:
         csrfToken: { type: [string, "null"] }
+        pilotAdmitted:
+          type: boolean
+          description: Server-authoritative pilot admission. False for anonymous, denied, or indeterminate sessions.
         user:
           type: [object, "null"]
           required: [id, firstName]
@@ -462,6 +566,46 @@ components:
       properties:
         error: { type: string }
         code: { type: string }
+    ProtectedApiFailure:
+      type: object
+      additionalProperties: false
+      required: [error, code, state]
+      properties:
+        error: { type: string }
+        code: { type: string }
+        state:
+          type: string
+          enum: [admission_required, quota_exhausted, processing, uncertain, service_unavailable, not_found, unauthorized]
+        retryable: { type: boolean, default: false }
+        retryAfterSeconds: { type: ["integer", "null"], minimum: 0 }
+    ProofReadiness:
+      type: object
+      additionalProperties: false
+      required: [state, proofState, searchAvailable, searchesUsed, searchLimit, detail, retryAfterSeconds]
+      properties:
+        state:
+          type: string
+          enum: [ready, admission_required, quota_exhausted, processing, uncertain, service_unavailable]
+        proofState:
+          type: string
+          enum: [queued, uploading, processing, indexing, ready, failed, needs_review]
+        searchAvailable: { type: boolean }
+        searchesUsed: { type: integer, minimum: 0 }
+        searchLimit: { type: integer, minimum: 0 }
+        detail: { type: ["string", "null"] }
+        retryAfterSeconds: { type: ["integer", "null"], minimum: 0 }
+    SearchOperation:
+      type: object
+      additionalProperties: false
+      required: [id, state, attemptId, createdAt, deadlineAt, completedAt, errorCode]
+      properties:
+        id: { type: string, format: uuid }
+        state: { type: string, enum: [running, done, failed, needs_review] }
+        attemptId: { type: ["string", "null"], format: uuid }
+        createdAt: { type: string, format: date-time }
+        deadlineAt: { type: ["string", "null"], format: date-time }
+        completedAt: { type: ["string", "null"], format: date-time }
+        errorCode: { type: ["string", "null"] }
     ProofCheck:
       type: object
       required: [id, label, status, detail]
@@ -548,4 +692,24 @@ components:
           type: string
       required:
         - status
+    ReadinessStatus:
+      type: object
+      additionalProperties: false
+      required: [status, checks, external]
+      properties:
+        status: { type: string, enum: [ready, not_ready] }
+        checks:
+          type: object
+          additionalProperties: false
+          required: [config, database, schema]
+          properties:
+            config: { type: string, enum: [ok, invalid] }
+            database: { type: string, enum: [ok, unavailable] }
+            schema: { type: string, enum: [ok, incompatible] }
+        external:
+          type: object
+          additionalProperties: false
+          required: [provider]
+          properties:
+            provider: { type: string, enum: [not_probed] }
 

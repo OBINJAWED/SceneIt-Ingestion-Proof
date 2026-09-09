@@ -36,7 +36,8 @@ export default function ImportsIndex() {
   });
 
   const createImport = useCreateImport({
-    request: { headers: { 'X-CSRF-Token': csrfToken || '' } }
+    request: { headers: { 'X-CSRF-Token': csrfToken || '' } },
+    mutation: { retry: false },
   });
 
   const [activeTab, setActiveTab] = useState<'upload' | 'link'>('upload');

@@ -37,7 +37,9 @@ class AuthBoundaryTests(unittest.TestCase):
         with app.test_request_context("/api/auth/user"):
             g.auth_session = None
             response = current_user()
-            self.assertEqual(response.get_json(), {"user": None, "csrfToken": None})
+            self.assertEqual(response.get_json(), {
+                "user": None, "csrfToken": None, "pilotAdmitted": False,
+            })
 
     def test_owner_and_csrf_come_only_from_verified_session(self):
         app = Flask(__name__)

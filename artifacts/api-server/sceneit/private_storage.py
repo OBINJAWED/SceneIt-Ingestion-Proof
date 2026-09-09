@@ -196,7 +196,7 @@ def cancel_upload_session(url):
 
 def object_info(path):
     blob = _blob(path)
-    blob.reload()
+    blob.reload(timeout=10, retry=None)
     return {
         "path": path,
         "size": int(blob.size),
@@ -283,7 +283,10 @@ def open_private(path, range_header=None, generation=None):
     """Return a bounded, private Flask response, including strict Range handling."""
     info = object_info(path)
     if generation is not None and int(generation) != info["generation"]:
-        return jsonify(error="Object generation changed."), 409
+        from .http import problem_response
+        return problem_response(
+            "Object generation changed.", "object_generation_changed", 409
+        )
     selected = _range(range_header, info["size"])
     headers = {
         "Accept-Ranges": "bytes",
@@ -293,7 +296,13 @@ def open_private(path, range_header=None, generation=None):
     }
     if selected is False:
         headers["Content-Range"] = f"bytes */{info['size']}"
-        return Response(status=416, headers=headers)
+        from .http import problem_response
+        response = problem_response(
+            "The byte range is not satisfiable.",
+            "range_not_satisfiable", 416,
+        )
+        response.headers.update(headers)
+        return response
     start, end = selected if selected else (0, info["size"] - 1)
     length = max(0, end - start + 1)
     if length > DEFAULT_MAX_BYTES:

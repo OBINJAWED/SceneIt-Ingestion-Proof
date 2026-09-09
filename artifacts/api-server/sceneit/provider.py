@@ -16,15 +16,21 @@ import json
 import mimetypes
 import os
 from pathlib import Path
+import subprocess
+import sys
 import time
 from typing import Any
 
 import httpx
 
+from .processes import kill_and_wait, start_guarded
+
 
 BASE_URL = "https://api.twelvelabs.io/v1.3"
 NORMAL_TIMEOUT = httpx.Timeout(45.0)
 UPLOAD_TIMEOUT = httpx.Timeout(300.0)
+MAX_RESPONSE_BYTES = 2_000_000
+SEARCH_PROCESS_TIMEOUT_SECONDS = 45.0
 
 
 class ProviderError(Exception):
@@ -50,13 +56,22 @@ class TwelveLabsClient:
     """One-video proof client; credentials are read only when instantiated."""
 
     def __init__(self) -> None:
+        if os.environ.get("SCENEIT_DISABLE_PROVIDER_NETWORK", "").lower() in (
+                "1", "true", "yes", "on"):
+            raise ProviderError(
+                "provider_network_disabled",
+                "Provider network access is disabled for this process.")
         api_key = os.environ.get("TWELVE_LABS_API_KEY")
         if not api_key:
             raise ProviderError("missing_credentials",
                                 "TWELVE_LABS_API_KEY is not configured.")
         self._api_key = api_key
+        base_url = BASE_URL
+        if os.environ.get("SCENEIT_ALLOW_PROVIDER_TEST_ENDPOINT") == "1":
+            base_url = os.environ.get(
+                "SCENEIT_PROVIDER_TEST_BASE_URL", BASE_URL)
         self._client = httpx.Client(
-            base_url=BASE_URL,
+            base_url=base_url,
             headers={"x-api-key": api_key, "Accept": "application/json"},
         )
 
@@ -65,6 +80,12 @@ class TwelveLabsClient:
 
     def close(self) -> None:
         self._client.close()
+
+    def __enter__(self) -> TwelveLabsClient:
+        return self
+
+    def __exit__(self, _type, _value, _traceback) -> None:
+        self.close()
 
     @staticmethod
     def _retryable_status(status: int) -> bool:
@@ -81,27 +102,10 @@ class TwelveLabsClient:
         return 0.5
 
     def _safe_error(self, response: httpx.Response) -> ProviderError:
-        code = f"http_{response.status_code}"
-        message = "Twelve Labs rejected the request."
-        try:
-            body = response.json()
-            if isinstance(body, dict):
-                error = body.get("error")
-                source = error if isinstance(error, dict) else body
-                raw_code = source.get("code")
-                raw_message = source.get("message")
-                if isinstance(raw_code, (str, int)):
-                    code = str(raw_code)[:100]
-                elif isinstance(error, str):
-                    message = error[:500]
-                if isinstance(raw_message, str):
-                    message = raw_message[:500]
-        except (ValueError, TypeError):
-            pass
-        # Defensive redaction if the provider unexpectedly echoes a credential.
-        if self._api_key:
-            message = message.replace(self._api_key, "[REDACTED]")
-            code = code.replace(self._api_key, "[REDACTED]")
+        # Provider payloads can echo submitted text or credentials.  They are
+        # intentionally neither parsed nor copied into exceptions/logs.
+        code = f"provider_http_{response.status_code}"
+        message = "The search provider rejected the request."
         return ProviderError(
             code, message, retryable=self._retryable_status(response.status_code),
             http_status=response.status_code)
@@ -111,9 +115,15 @@ class TwelveLabsClient:
                  mutation: bool = False, **kwargs: Any) -> dict[str, Any]:
         attempts = 1 if mutation or method != "GET" else 2
         for attempt in range(attempts):
+            timeout_values = (
+                timeout.connect, timeout.read, timeout.write, timeout.pool)
+            budget = max(
+                value for value in timeout_values if value is not None)
+            deadline = time.monotonic() + budget
             try:
-                response = self._client.request(method, path, timeout=timeout,
-                                                **kwargs)
+                request = self._client.build_request(
+                    method, path, timeout=timeout, **kwargs)
+                response = self._client.send(request, stream=True)
             except httpx.RequestError:
                 if attempt + 1 < attempts:
                     time.sleep(0.5)
@@ -122,30 +132,54 @@ class TwelveLabsClient:
                     "network_error", "Could not complete the Twelve Labs request.",
                     retryable=True, ambiguous=mutation) from None
 
-            if response.is_success:
-                if response.status_code == 204 or not response.content:
-                    return {}
-                try:
-                    body = response.json()
-                except ValueError:
-                    raise ProviderError(
-                        "invalid_response",
-                        "Twelve Labs returned a non-JSON success response.",
-                        ambiguous=mutation,
-                        http_status=response.status_code) from None
-                if not isinstance(body, dict):
-                    raise ProviderError(
-                        "invalid_response",
-                        "Twelve Labs returned an unexpected response shape.",
-                        ambiguous=mutation,
-                        http_status=response.status_code)
-                return body
+            try:
+                if response.is_success:
+                    if time.monotonic() >= deadline:
+                        raise ProviderError(
+                            "provider_deadline_exceeded",
+                            "The provider operation exceeded its deadline.",
+                            retryable=True, ambiguous=mutation)
+                    if response.status_code == 204:
+                        return {}
+                    content = bytearray()
+                    for chunk in response.iter_bytes():
+                        if time.monotonic() >= deadline:
+                            raise ProviderError(
+                                "provider_deadline_exceeded",
+                                "The provider operation exceeded its deadline.",
+                                retryable=True, ambiguous=mutation)
+                        content.extend(chunk)
+                        if len(content) > MAX_RESPONSE_BYTES:
+                            raise ProviderError(
+                                "response_too_large",
+                                "The provider response exceeded the safe limit.",
+                                ambiguous=mutation,
+                                http_status=response.status_code)
+                    if not content:
+                        return {}
+                    try:
+                        body = json.loads(content)
+                    except ValueError:
+                        raise ProviderError(
+                            "invalid_response",
+                            "Twelve Labs returned a non-JSON success response.",
+                            ambiguous=mutation,
+                            http_status=response.status_code) from None
+                    if not isinstance(body, dict):
+                        raise ProviderError(
+                            "invalid_response",
+                            "Twelve Labs returned an unexpected response shape.",
+                            ambiguous=mutation,
+                            http_status=response.status_code)
+                    return body
 
-            if (attempt + 1 < attempts and
-                    self._retryable_status(response.status_code)):
-                time.sleep(self._wait_seconds(response))
-                continue
-            raise self._safe_error(response)
+                if (attempt + 1 < attempts and
+                        self._retryable_status(response.status_code)):
+                    time.sleep(self._wait_seconds(response))
+                    continue
+                raise self._safe_error(response)
+            finally:
+                response.close()
 
         raise AssertionError("request attempt loop exhausted")
 
@@ -287,7 +321,8 @@ class TwelveLabsClient:
             raise
 
     def search(self, index_id: str, query: str, modality: str,
-               indexed_id: str) -> dict[str, Any]:
+               indexed_id: str, *, timeout_seconds: float | None = None
+               ) -> dict[str, Any]:
         options = {
             "both": ("visual", "audio"),
             "visual": ("visual",),
@@ -298,17 +333,136 @@ class TwelveLabsClient:
                                 "modality must be one of: both, visual, audio.")
         # Search filter `id` is the indexed video's ID; it is the `_id` returned
         # by POST/GET indexed-assets, not the reusable source asset's asset_id.
-        fields = [
-            ("query_text", (None, query)),
-            ("index_id", (None, index_id)),
-            ("page_limit", (None, "10")),
-            ("filter", (None, json.dumps({"id": [indexed_id]}))),
-        ]
-        fields.extend(("search_options", (None, option)) for option in options)
-        body = self._request("POST", "/search", files=fields, mutation=True)
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise ProviderError(
+                "search_deadline_exceeded",
+                "The search deadline elapsed before submission completed.",
+                ambiguous=True,
+            )
+        request = {
+            "indexId": index_id,
+            "query": query,
+            "modality": modality,
+            "indexedId": indexed_id,
+        }
+        timeout = min(
+            SEARCH_PROCESS_TIMEOUT_SECONDS,
+            timeout_seconds if timeout_seconds is not None
+            else SEARCH_PROCESS_TIMEOUT_SECONDS)
+        body = _bounded_search_subprocess(request, timeout)
         if not isinstance(body.get("data"), list) or not isinstance(
             body.get("page_info"), dict
         ):
             raise ProviderError("invalid_response",
-                                "Twelve Labs returned an invalid search result.")
+                                "The search provider returned an invalid result.",
+                                ambiguous=True)
         return body
+
+
+def _bounded_search_subprocess(request, timeout):
+    """Return only after the provider child has exited or been killed/reaped."""
+    child = start_guarded(
+        [sys.executable, "-m", "sceneit.provider", "search-child"],
+        timeout=timeout,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL)
+    encoded = json.dumps(request, separators=(",", ":")).encode()
+    started = time.monotonic()
+    try:
+        # The independent guard owns the absolute deadline. This extra second
+        # only gives the parent time to observe and reap its killed group.
+        output, _ = child.communicate(
+            input=encoded, timeout=max(.1, timeout) + 1)
+    except subprocess.TimeoutExpired:
+        kill_and_wait(child)
+        raise ProviderError(
+            "search_deadline_exceeded",
+            "The search provider did not respond before the deadline.",
+            retryable=True, ambiguous=True) from None
+    deadline_margin = min(.2, timeout * .1)
+    if (child.returncode and
+            time.monotonic() - started >= timeout - deadline_margin):
+        raise ProviderError(
+            "search_deadline_exceeded",
+            "The search provider did not respond before the deadline.",
+            retryable=True, ambiguous=True)
+    if len(output) > MAX_RESPONSE_BYTES or child.returncode:
+        raise ProviderError(
+            "search_process_failed",
+            "The isolated search provider process failed.",
+            ambiguous=True)
+    try:
+        envelope = json.loads(output)
+    except (ValueError, UnicodeDecodeError):
+        raise ProviderError(
+            "search_process_failed",
+            "The isolated search provider process returned an invalid result.",
+            ambiguous=True) from None
+    if not isinstance(envelope, dict) or not isinstance(envelope.get("ok"), bool):
+        raise ProviderError(
+            "search_process_failed",
+            "The isolated search provider process returned an invalid result.",
+            ambiguous=True)
+    if not envelope["ok"]:
+        error = envelope.get("error", {})
+        raise ProviderError(
+            error.get("code", "search_process_failed"),
+            error.get("message", "The isolated search provider process failed."),
+            retryable=error.get("retryable") is True,
+            ambiguous=error.get("ambiguous") is True,
+            http_status=error.get("httpStatus"))
+    body = envelope.get("body")
+    if not isinstance(body, dict):
+        raise ProviderError(
+            "search_process_failed",
+            "The isolated search provider process returned an invalid result.",
+            ambiguous=True)
+    return body
+
+
+def _run_search_child():
+    try:
+        raw = sys.stdin.buffer.read(MAX_RESPONSE_BYTES + 1)
+        if len(raw) > MAX_RESPONSE_BYTES:
+            return 1
+        request = json.loads(raw)
+        with TwelveLabsClient() as client:
+            options = {
+                "both": ("visual", "audio"),
+                "visual": ("visual",),
+                "audio": ("audio",),
+            }[request["modality"]]
+            fields = [
+                ("query_text", (None, request["query"])),
+                ("index_id", (None, request["indexId"])),
+                ("page_limit", (None, "10")),
+                ("filter", (None, json.dumps({"id": [request["indexedId"]]}))),
+            ]
+            fields.extend(
+                ("search_options", (None, option)) for option in options)
+            body = client._request(
+                "POST", "/search", files=fields, mutation=True,
+                timeout=httpx.Timeout(SEARCH_PROCESS_TIMEOUT_SECONDS))
+        envelope = {"ok": True, "body": body}
+    except ProviderError as exc:
+        envelope = {"ok": False, "error": {
+            "code": exc.code, "message": exc.message,
+            "retryable": exc.retryable, "ambiguous": exc.ambiguous,
+            "httpStatus": exc.http_status,
+        }}
+    except Exception:
+        envelope = {"ok": False, "error": {
+            "code": "search_process_failed",
+            "message": "The isolated search provider process failed.",
+            "ambiguous": True,
+        }}
+    encoded = json.dumps(envelope, separators=(",", ":")).encode()
+    if len(encoded) > MAX_RESPONSE_BYTES:
+        return 1
+    sys.stdout.buffer.write(encoded)
+    sys.stdout.buffer.flush()
+    return 0
+
+
+if __name__ == "__main__" and sys.argv[1:] == ["search-child"]:
+    raise SystemExit(_run_search_child())
