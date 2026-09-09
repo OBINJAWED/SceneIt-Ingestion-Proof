@@ -29,6 +29,196 @@ export interface AuthState {
   user: AuthStateUser;
 }
 
+export type BillingCheckoutPlan = typeof BillingCheckoutPlan[keyof typeof BillingCheckoutPlan];
+
+
+export const BillingCheckoutPlan = {
+  monthly: 'monthly',
+  yearly: 'yearly',
+} as const;
+
+export interface BillingCheckout {
+  plan: BillingCheckoutPlan;
+  idempotencyKey: string;
+}
+
+export interface BillingHostedSession {
+  url: string;
+  /** @nullable */
+  expiresAt: string | null;
+}
+
+/**
+ * Provider event whose exact raw bytes are verified before parsing.
+ */
+export interface BillingWebhookEvent { [key: string]: unknown }
+
+export const BillingWebhookAckValue = {
+  received: true,
+} as const;
+export type BillingWebhookAck = typeof BillingWebhookAckValue;
+
+export interface BillingMetric {
+  /** @minimum 0 */
+  limit: number;
+  /** @minimum 0 */
+  used: number;
+  /** @minimum 0 */
+  remaining: number;
+}
+
+export interface BillingMetrics {
+  imports: BillingMetric;
+  upload_attempts: BillingMetric;
+  analysis_seconds: BillingMetric;
+  searches: BillingMetric;
+  media_bytes: BillingMetric;
+  frames: BillingMetric;
+}
+
+export interface BillingUsage {
+  /** @nullable */
+  windowStart: string | null;
+  /** @nullable */
+  windowEnd: string | null;
+  metrics: BillingMetrics;
+  storage: BillingMetric;
+  workStopped: boolean;
+}
+
+/**
+ * @nullable
+ */
+export type BillingStatusEnvironment = typeof BillingStatusEnvironment[keyof typeof BillingStatusEnvironment] | null;
+
+
+export const BillingStatusEnvironment = {
+  test: 'test',
+  live: 'live',
+} as const;
+
+export type BillingStatusMembership = typeof BillingStatusMembership[keyof typeof BillingStatusMembership];
+
+
+export const BillingStatusMembership = {
+  disabled: 'disabled',
+  active: 'active',
+  inactive: 'inactive',
+} as const;
+
+export interface BillingStatus {
+  enabled: boolean;
+  /** @nullable */
+  environment: BillingStatusEnvironment;
+  membership: BillingStatusMembership;
+  /** @nullable */
+  paidThrough: string | null;
+  cancelAtPeriodEnd: boolean;
+  usage: BillingUsage | null;
+}
+
+export type BillingProblemCode = typeof BillingProblemCode[keyof typeof BillingProblemCode];
+
+
+export const BillingProblemCode = {
+  membership_required: 'membership_required',
+  billing_disabled: 'billing_disabled',
+  service_work_stopped: 'service_work_stopped',
+  service_capacity_exhausted: 'service_capacity_exhausted',
+  owner_quota_exhausted: 'owner_quota_exhausted',
+  storage_quota_exhausted: 'storage_quota_exhausted',
+  billing_unavailable: 'billing_unavailable',
+  validation_error: 'validation_error',
+  invalid_request: 'invalid_request',
+  invalid_plan: 'invalid_plan',
+  invalid_idempotency_key: 'invalid_idempotency_key',
+  pilot_not_admitted: 'pilot_not_admitted',
+  origin_rejected: 'origin_rejected',
+  http_401: 'http_401',
+  http_403: 'http_403',
+  billing_customer_missing: 'billing_customer_missing',
+  billing_environment_mismatch: 'billing_environment_mismatch',
+  billing_customer_outcome_unknown: 'billing_customer_outcome_unknown',
+  billing_relationship_invalid: 'billing_relationship_invalid',
+  idempotency_conflict: 'idempotency_conflict',
+  checkout_outcome_unknown: 'checkout_outcome_unknown',
+  checkout_completed: 'checkout_completed',
+  checkout_exists: 'checkout_exists',
+  checkout_plan_conflict: 'checkout_plan_conflict',
+  checkout_state_invalid: 'checkout_state_invalid',
+  subscription_exists: 'subscription_exists',
+  reservation_conflict: 'reservation_conflict',
+  reservation_released: 'reservation_released',
+  provider_outcome_unknown: 'provider_outcome_unknown',
+  provider_rejected: 'provider_rejected',
+  invalid_webhook: 'invalid_webhook',
+  webhook_too_large: 'webhook_too_large',
+  webhook_rejected: 'webhook_rejected',
+  invoice_not_paid: 'invoice_not_paid',
+  billing_provider_unavailable: 'billing_provider_unavailable',
+  participant_throttled: 'participant_throttled',
+  database_unavailable: 'database_unavailable',
+  database_capacity_exhausted: 'database_capacity_exhausted',
+  upstream_unavailable: 'upstream_unavailable',
+  internal_error: 'internal_error',
+} as const;
+
+export type BillingProblemState = typeof BillingProblemState[keyof typeof BillingProblemState];
+
+
+export const BillingProblemState = {
+  admission_required: 'admission_required',
+  quota_exhausted: 'quota_exhausted',
+  processing: 'processing',
+  uncertain: 'uncertain',
+  service_unavailable: 'service_unavailable',
+  not_found: 'not_found',
+  unauthorized: 'unauthorized',
+} as const;
+
+/**
+ * Safe commercial-work failure. Current domain code/status mappings are:
+ * `invalid_request`, `invalid_plan`, `invalid_idempotency_key`, `invalid_webhook` (400);
+ * `http_401` (401); `membership_required` (402);
+ * `pilot_not_admitted`, `origin_rejected`, `http_403` (403);
+ * `billing_customer_missing` (404);
+ * `idempotency_conflict`, `checkout_outcome_unknown`, `subscription_exists`,
+ * `billing_environment_mismatch`, `billing_customer_outcome_unknown`,
+ * `billing_relationship_invalid`, `reservation_conflict`, `reservation_released`,
+ * `webhook_rejected`, `invoice_not_paid`, `checkout_completed`, `checkout_exists`,
+ * `checkout_plan_conflict`, `checkout_state_invalid` (409);
+ * `participant_throttled`, `owner_quota_exhausted`, `storage_quota_exhausted` (429);
+ * and `billing_disabled`, `billing_unavailable`, `billing_provider_unavailable`,
+ * `provider_outcome_unknown`, `provider_rejected`, `service_work_stopped`,
+ * `service_capacity_exhausted`, `database_unavailable`,
+ * `database_capacity_exhausted`, `upstream_unavailable` (503).
+ * `webhook_too_large` is 413 and an unexpected failure is `internal_error` (500).
+ * Validation failures use `invalid_request`; `validation_error` is reserved for
+ * compatible validation emitters.
+ */
+export interface BillingProblem {
+  error: string;
+  code: BillingProblemCode;
+  state: BillingProblemState;
+  retryable?: boolean;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  retryAfterSeconds?: number | null;
+}
+
+/**
+ * Whether reported owner import/search limits are pilot lifetime counters or commercial monthly allowances.
+ */
+export type ImportConfigQuotaMode = typeof ImportConfigQuotaMode[keyof typeof ImportConfigQuotaMode];
+
+
+export const ImportConfigQuotaMode = {
+  lifetime: 'lifetime',
+  monthly: 'monthly',
+} as const;
+
 export interface ImportConfig {
   maxBytes: number;
   minDurationSeconds: number;
@@ -38,6 +228,8 @@ export interface ImportConfig {
   appImportLimit: number;
   ownerSearchLimit: number;
   appSearchLimit: number;
+  /** Whether reported owner import/search limits are pilot lifetime counters or commercial monthly allowances. */
+  quotaMode: ImportConfigQuotaMode;
   workerAvailable: boolean;
 }
 
@@ -136,6 +328,17 @@ export const VideoImportTimelineStatus = {
   unverified: 'unverified',
 } as const;
 
+/**
+ * Semantics of the reported import and search counters.
+ */
+export type VideoImportQuotaMode = typeof VideoImportQuotaMode[keyof typeof VideoImportQuotaMode];
+
+
+export const VideoImportQuotaMode = {
+  lifetime: 'lifetime',
+  monthly: 'monthly',
+} as const;
+
 export interface VideoImport {
   id: string;
   title: string;
@@ -169,6 +372,8 @@ export interface VideoImport {
   searchLimit: number;
   importsUsed: number;
   importLimit: number;
+  /** Semantics of the reported import and search counters. */
+  quotaMode: VideoImportQuotaMode;
 }
 
 export interface UploadReservation {
@@ -514,6 +719,11 @@ export type FailureResponse = ApiFailure;
  * Typed protected-resource failure
  */
 export type ProtectedFailureResponse = ProtectedApiFailure;
+
+/**
+ * Safe billing, entitlement, quota, capacity, or validation failure
+ */
+export type BillingFailureResponse = BillingProblem;
 
 export type LoginParams = {
 returnTo?: string;

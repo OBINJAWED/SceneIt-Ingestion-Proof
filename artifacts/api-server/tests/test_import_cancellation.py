@@ -207,7 +207,7 @@ class ImportCancellationTests(unittest.TestCase):
         ), patch("sceneit.import_worker._update", side_effect=lambda row, **kw: row.update(kw)):
             import_worker._cancel(job, Mock())
         self.assertEqual(["decrypt", "revoke", "cleanup-query"], events[:3])
-        self.assertEqual(["object-info", "delete-object"], events[3:])
+        self.assertEqual(["object-info", "delete-object", "cleanup-query"], events[3:])
         self.assertEqual("cancelled", job["state"])
 
         guarded = {

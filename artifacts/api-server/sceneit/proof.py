@@ -317,6 +317,16 @@ def _search_scenes(payload, client_factory):
             raise ProofError("busy", "Two searches are already running. Please wait.", 429)
         if proof["searches_used"] >= proof["search_limit"]:
             raise ProofError("proof_budget_reached", "The 50-request proof budget has been reached. Saved searches remain available.", 429)
+        from .billing_config import billing_settings
+        settings = billing_settings()
+        commercial = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+        if commercial:
+            from .quota import check_work, reserve
+            # Shared proof activity spends only the application allowance.
+            check_work(conn, None, require_membership=False)
+            reserve(
+                conn, None, f"proof-search:{search_id}", {"searches": 1},
+                require_membership=False)
         conn.execute(
             "UPDATE sceneit_proofs SET searches_used = searches_used + 1, last_search_at = now() WHERE id = %s",
             (PROOF_ID,),

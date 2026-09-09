@@ -68,6 +68,31 @@ def _fps(value) -> float:
     return _number(numerator, "frame rate") / den
 
 
+def _observed_duration(progress: bytes) -> float:
+    """Return the greatest timeline position emitted by a complete decode."""
+    greatest = -1.0
+    try:
+        lines = progress.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        raise MediaInspectionError("invalid_media", "The MP4 timeline is malformed.") from None
+    for line in lines:
+        if line.startswith("out_time_us="):
+            greatest = max(greatest, _number(line.partition("=")[2], "timeline") / 1_000_000)
+        elif line.startswith("out_time="):
+            value = line.partition("=")[2]
+            parts = value.split(":")
+            if len(parts) == 3:
+                greatest = max(
+                    greatest,
+                    _number(parts[0], "timeline") * 3600
+                    + _number(parts[1], "timeline") * 60
+                    + _number(parts[2], "timeline"))
+    if greatest < 0:
+        raise MediaInspectionError(
+            "invalid_media", "The MP4 has no independently observed media timeline.")
+    return greatest
+
+
 def inspect_mp4(path: str | os.PathLike[str]) -> dict:
     file_path = Path(path)
     try:
@@ -138,18 +163,33 @@ def inspect_mp4(path: str | os.PathLike[str]) -> dict:
         "-threads", "1",
         "-protocol_whitelist", "file,pipe", "-i", str(file_path),
         "-map", "0:v:0", *(["-map", "0:a:0"] if audios else []),
+        "-progress", "pipe:1", "-stats_period", "1",
         "-f", "null", "-",
     ], 60)
-    if validation.returncode:
+    if validation.returncode or len(validation.stdout) > 1_000_000:
         raise MediaInspectionError("invalid_media",
                                    "The MP4 contains malformed or undecodable media.")
+    observed_duration = _observed_duration(validation.stdout)
+    # Container duration is attacker-controlled metadata.  A complete decode's
+    # output timeline independently enforces the provider bound and rejects
+    # files that materially understate (or otherwise contradict) that metadata.
+    if observed_duration < MIN_DURATION or observed_duration > MAX_DURATION:
+        raise MediaInspectionError(
+            "unsupported_duration",
+            "The observed video duration must be between 4 seconds and 4 hours.")
+    tolerance = max(1.0, min(duration, observed_duration) * 0.02)
+    if abs(observed_duration - duration) > tolerance:
+        raise MediaInspectionError(
+            "invalid_media", "The MP4 metadata is inconsistent with its media timeline.")
     try:
         with file_path.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
     except OSError:
         raise MediaInspectionError("file_unavailable", "The MP4 file became unavailable.") from None
     return {
-        "duration": duration, "size": size, "width": width, "height": height,
+        # Admission and billable units must never use a shorter container claim
+        # when the independent decode observed a longer playable timeline.
+        "duration": max(duration, observed_duration), "size": size, "width": width, "height": height,
         "hasAudio": bool(audios), "sha256": digest,
         "videoCodec": "h264", "audioCodec": "aac" if audios else None,
     }

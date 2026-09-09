@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from .db import connection
 from .import_limits import (ImportProblem, OWNER_SEARCH_LIMIT,
-                            reserve_search_budget)
+                            reserve_search_operation)
 from .proof import SEARCH_DEADLINE_SECONDS, SceneQuery
 from .provider import ProviderError, TwelveLabsClient
 from .resources import ResourceExhausted, shared_permit
@@ -156,7 +156,8 @@ def _search_import(owner_id, import_id, payload, client_factory):
         if owner_running >= 2 or app_running >= 10:
             raise ImportProblem("search_busy",
                                 "Search capacity is busy. Please retry shortly.", 429)
-        ok, code = reserve_search_budget(conn, owner_id)
+        ok, code = reserve_search_operation(
+            conn, owner_id, f"import-search:{search_id}")
         if not ok:
             raise ImportProblem(code, "The cumulative search allowance has been reached.", 429)
         operation = conn.execute(

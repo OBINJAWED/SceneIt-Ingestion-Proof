@@ -31,6 +31,7 @@ or cross-video search product.
 - Development runs web and import worker as separate workflows. `start:with-worker` supplies a supervised production launch option, but is **not enabled**. The current autoscale web-only deployment cannot run durable ingestion; obtain approval before changing runtime, billing, or deployment.
 - See `artifacts/api-server/docs/import-operations.md` for limits, retention, extractor controls, and operator reconciliation.
 - See `artifacts/api-server/docs/pilot-operations.md` for admission/proxy settings, release approval, uncertain-search reconciliation, backup/restore, and rollback/forward-repair.
+- See `artifacts/api-server/docs/billing-operations.md` for disabled-by-default billing configuration, payment policy, usage windows, operator stops, reconciliation, and separately approved activation.
 - Fixture and development-upgrade evidence is recorded in `artifacts/api-server/docs/pilot-verification.md`; it is not live provider or real-phone playback certification.
 - Development DDL lives in `artifacts/api-server/sceneit/schema.sql`. Do not run the unused Drizzle schema push against these Python-owned tables. Do not apply schema changes on application startup or in a production build.
 

@@ -17,6 +17,8 @@ pg_ctl -D "$WORK/data" -l "$WORK/postgres.log" \
 createdb -U sceneit_fixture -h "$WORK" -p 55459 sceneit_test_runtime
 createdb -U sceneit_fixture -h "$WORK" -p 55459 sceneit_test_transactions
 unset TWELVE_LABS_API_KEY
+unset STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET
+export SCENEIT_BILLING_ENABLED=false
 export DATABASE_URL="postgresql://sceneit_fixture@/sceneit_test_runtime?host=$WORK&port=55459"
 export SCENEIT_TEST_DATABASE_URL="postgresql://sceneit_fixture@/sceneit_test_transactions?host=$WORK&port=55459"
 export SCENEIT_DISABLE_PROVIDER_NETWORK=1

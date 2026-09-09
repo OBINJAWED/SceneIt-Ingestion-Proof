@@ -13,4 +13,5 @@ dependencies = [
     "psycopg[binary]>=3.3.5",
     "pydantic>=2.13.5",
     "yt-dlp==2026.8.19",
+    "stripe>=15.6.1",
 ]

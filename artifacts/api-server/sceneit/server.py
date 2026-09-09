@@ -53,6 +53,8 @@ def _environment_config():
 def create_app(config=None):
     """Create the app without migrations, database access, or provider calls."""
     from .auth import init_auth, require_csrf
+    from .billing_config import billing_settings
+    from .billing_routes import billing_bp
     from .health import health_bp
     from .http import install_http
     from .imports import imports_bp
@@ -74,10 +76,14 @@ def create_app(config=None):
         })
         application.config.from_mapping(config)
 
+    # Validate the complete opt-in commercial policy at startup. Disabled mode
+    # deliberately requires no Stripe credentials and performs no I/O.
+    billing_settings()
     install_http(application)
     init_auth(application)
     install_security(application)
     application.register_blueprint(health_bp)
+    application.register_blueprint(billing_bp)
     application.register_blueprint(imports_bp)
     application.register_blueprint(proof_media_bp)
 

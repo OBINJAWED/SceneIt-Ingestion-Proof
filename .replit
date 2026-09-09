@@ -71,4 +71,4 @@ timeoutMs = 180000
 
 [nix]
 channel = "stable-25_05"
-packages = ["libxcrypt", "postgresql", "ffmpeg", "chromium"]
+packages = ["chromium", "ffmpeg", "libxcrypt", "postgresql"]

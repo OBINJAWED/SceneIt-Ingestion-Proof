@@ -262,10 +262,8 @@ class StorageBoundaryTests(unittest.TestCase):
 
     def test_open_private_streams_bounded_generation_range(self):
         app = Flask(__name__)
-        handle = Mock()
-        handle.read.side_effect = [b"2345"]
         blob = Mock()
-        blob.open.return_value = handle
+        blob.download_as_bytes.return_value = b"2345"
         info = {
             "size": 10, "generation": 7, "contentType": "video/mp4",
             "etag": "etag",
@@ -280,11 +278,11 @@ class StorageBoundaryTests(unittest.TestCase):
             self.assertEqual(response.status_code, 206)
             self.assertEqual(response.get_data(), b"2345")
             self.assertEqual(response.headers["Content-Range"], "bytes 2-5/10")
-        blob.open.assert_called_once_with(
-            "rb", chunk_size=1024 * 1024, if_generation_match=7, timeout=120,
-        )
-        handle.seek.assert_called_once_with(2)
-        handle.close.assert_called_once()
+        blob.download_as_bytes.assert_called_once()
+        arguments = blob.download_as_bytes.call_args.kwargs
+        self.assertEqual((arguments["start"], arguments["end"]), (2, 5))
+        self.assertEqual(arguments["if_generation_match"], 7)
+        self.assertIsNone(arguments["retry"])
 
 
 @unittest.skipUnless(

@@ -16,3 +16,14 @@ Both let repeated timeouts exceed a nominal cross-process limit.
 parent-death/deadline guards when changing search or media processing. Keep
 lease lifetimes above the enforced whole-operation bound, and retain consumed
 quota when a paid request may have reached the provider.
+
+A managed workflow restart can leave a persisted worker permit even after the
+old process and its database lock connection have gone.
+
+**Why:** Workflow termination is not guaranteed to let the worker's `finally`
+cleanup finish. A replacement may correctly report exhausted capacity until
+the existing lease expires; this is not evidence that limits need increasing.
+
+**How to apply:** Check for surviving workers and independently bounded children.
+Do not clear a permit merely to make the workflow green; allow normal expiry
+and retain uncertain operation reservations.

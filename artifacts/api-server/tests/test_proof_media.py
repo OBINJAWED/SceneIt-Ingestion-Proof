@@ -6,7 +6,7 @@ import time
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 from sceneit.processes import bounded_process
 from sceneit.server import create_app
@@ -50,7 +50,9 @@ class ProofMediaTests(unittest.TestCase):
             response = self.client.get(
                 "/api/proof/searches/00000000-0000-0000-0000-000000000001/frames/1")
         self.assertEqual(response.status_code, 200)
-        storage.assert_called_once_with("/private/cache.jpg")
+        storage.assert_called_once_with(
+            "/private/cache.jpg", owner_id=None,
+            operation_id=ANY, require_membership=False)
         extract.assert_not_called()
 
     def test_worker_saturation_does_not_spawn_media(self):

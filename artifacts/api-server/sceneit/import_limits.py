@@ -20,6 +20,11 @@ class ImportProblem(Exception):
 
 def reserve_import_budget(conn, owner_id):
     """Reserve once, transactionally. Reservations are intentionally never refunded."""
+    from .billing_config import billing_settings
+    settings = billing_settings()
+    enabled = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+    if enabled:
+        raise ValueError("Commercial import reservations require an operation id")
     conn.execute(
         "INSERT INTO sceneit_import_usage(owner_id) VALUES (%s) "
         "ON CONFLICT (owner_id) DO NOTHING", (owner_id,))
@@ -42,6 +47,11 @@ def reserve_import_budget(conn, owner_id):
 
 def reserve_search_budget(conn, owner_id):
     """Reserve a provider search before leaving the transaction."""
+    from .billing_config import billing_settings
+    settings = billing_settings()
+    enabled = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+    if enabled:
+        raise ValueError("Commercial search reservations require an operation id")
     conn.execute(
         "INSERT INTO sceneit_import_usage(owner_id) VALUES (%s) "
         "ON CONFLICT (owner_id) DO NOTHING", (owner_id,))
@@ -59,4 +69,28 @@ def reserve_search_budget(conn, owner_id):
                  "updated_at=now() WHERE owner_id=%s", (owner_id,))
     conn.execute("UPDATE sceneit_import_app_usage SET searches_used=searches_used+1 "
                  "WHERE singleton=true")
+    return True, None
+
+
+def reserve_import_operation(conn, owner_id, operation_id):
+    """Use recurring commercial quota, or the unchanged pilot lifetime ledger."""
+    from .billing_config import billing_settings
+    settings = billing_settings()
+    enabled = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+    if not enabled:
+        return reserve_import_budget(conn, owner_id)
+    from .quota import reserve
+    reserve(conn, owner_id, operation_id, {"imports": 1})
+    return True, None
+
+
+def reserve_search_operation(conn, owner_id, operation_id):
+    """Reserve exactly one durable search submission."""
+    from .billing_config import billing_settings
+    settings = billing_settings()
+    enabled = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+    if not enabled:
+        return reserve_search_budget(conn, owner_id)
+    from .quota import reserve
+    reserve(conn, owner_id, operation_id, {"searches": 1})
     return True, None

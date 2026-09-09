@@ -5,6 +5,7 @@
  * SceneIt one-video ingestion and semantic-search proof.
  * OpenAPI spec version: 0.1.0
  */
+import type { ImportConfigQuotaMode } from './importConfigQuotaMode';
 
 export interface ImportConfig {
   maxBytes: number;
@@ -15,5 +16,7 @@ export interface ImportConfig {
   appImportLimit: number;
   ownerSearchLimit: number;
   appSearchLimit: number;
+  /** Whether reported owner import/search limits are pilot lifetime counters or commercial monthly allowances. */
+  quotaMode: ImportConfigQuotaMode;
   workerAvailable: boolean;
 }

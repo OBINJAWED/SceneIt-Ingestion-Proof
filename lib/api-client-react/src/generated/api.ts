@@ -21,6 +21,12 @@ import type {
 
 import type {
   AuthState,
+  BillingCheckout,
+  BillingFailureResponse,
+  BillingHostedSession,
+  BillingStatus,
+  BillingWebhookAck,
+  BillingWebhookEvent,
   CreateImport,
   EmptyRequest,
   FailureResponse,
@@ -218,6 +224,300 @@ export function useGetCurrentAuthUser<TData = Awaited<ReturnType<typeof getCurre
 
 
 
+
+export const getGetBillingStatusUrl = () => {
+
+
+
+
+  return `/api/billing/status`
+}
+
+/**
+ * Returns private, owner-scoped billing state. The response must not be cached.
+ * @summary Read the current account's membership and usage
+ */
+export const getBillingStatus = async ( options?: Parameters<typeof customFetch>[1]): Promise<BillingStatus> => {
+
+  return customFetch<BillingStatus>(getGetBillingStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBillingStatusQueryKey = () => {
+    return [
+    `/api/billing/status`
+    ] as const;
+    }
+
+
+export const getGetBillingStatusQueryOptions = <TData = Awaited<ReturnType<typeof getBillingStatus>>, TError = ErrorType<BillingFailureResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBillingStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBillingStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBillingStatus>>> = ({ signal }) => getBillingStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBillingStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBillingStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getBillingStatus>>>
+export type GetBillingStatusQueryError = ErrorType<BillingFailureResponse>
+
+
+/**
+ * @summary Read the current account's membership and usage
+ */
+
+export function useGetBillingStatus<TData = Awaited<ReturnType<typeof getBillingStatus>>, TError = ErrorType<BillingFailureResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBillingStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBillingStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateBillingCheckoutUrl = () => {
+
+
+
+
+  return `/api/billing/checkout`
+}
+
+/**
+ * Requires pilot admission. Price, customer, ownership, and return destinations are derived by the server.
+ * @summary Create an allowlisted Stripe-hosted subscription checkout
+ */
+export const createBillingCheckout = async (billingCheckout: BillingCheckout, options?: Parameters<typeof customFetch>[1]): Promise<BillingHostedSession> => {
+
+  return customFetch<BillingHostedSession>(getCreateBillingCheckoutUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingCheckout)
+  }
+);}
+
+
+
+
+
+export const getCreateBillingCheckoutMutationOptions = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingCheckout>>, TError,{data: BodyType<BillingCheckout>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBillingCheckout>>, TError,{data: BodyType<BillingCheckout>}, TContext> => {
+
+const mutationKey = ['createBillingCheckout'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBillingCheckout>>, {data: BodyType<BillingCheckout>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createBillingCheckout(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBillingCheckoutMutationResult = NonNullable<Awaited<ReturnType<typeof createBillingCheckout>>>
+    export type CreateBillingCheckoutMutationBody = BodyType<BillingCheckout>
+    export type CreateBillingCheckoutMutationError = ErrorType<BillingFailureResponse>
+
+    /**
+ * @summary Create an allowlisted Stripe-hosted subscription checkout
+ */
+export const useCreateBillingCheckout = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingCheckout>>, TError,{data: BodyType<BillingCheckout>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBillingCheckout>>,
+        TError,
+        {data: BodyType<BillingCheckout>},
+        TContext
+      > => {
+      return useMutation(getCreateBillingCheckoutMutationOptions(options));
+    }
+
+export const getCreateBillingPortalUrl = () => {
+
+
+
+
+  return `/api/billing/portal`
+}
+
+/**
+ * Remains available to an authenticated billing customer without pilot admission or active membership.
+ * @summary Create an owner-scoped Stripe-hosted customer portal
+ */
+export const createBillingPortal = async (emptyRequest: EmptyRequest, options?: Parameters<typeof customFetch>[1]): Promise<BillingHostedSession> => {
+
+  return customFetch<BillingHostedSession>(getCreateBillingPortalUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(emptyRequest)
+  }
+);}
+
+
+
+
+
+export const getCreateBillingPortalMutationOptions = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<EmptyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<EmptyRequest>}, TContext> => {
+
+const mutationKey = ['createBillingPortal'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBillingPortal>>, {data: BodyType<EmptyRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createBillingPortal(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBillingPortalMutationResult = NonNullable<Awaited<ReturnType<typeof createBillingPortal>>>
+    export type CreateBillingPortalMutationBody = BodyType<EmptyRequest>
+    export type CreateBillingPortalMutationError = ErrorType<BillingFailureResponse>
+
+    /**
+ * @summary Create an owner-scoped Stripe-hosted customer portal
+ */
+export const useCreateBillingPortal = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<EmptyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBillingPortal>>,
+        TError,
+        {data: BodyType<EmptyRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateBillingPortalMutationOptions(options));
+    }
+
+export const getReceiveBillingWebhookUrl = () => {
+
+
+
+
+  return `/api/billing/webhook`
+}
+
+/**
+ * The server validates Stripe-Signature against the unmodified bounded request body. This is not a browser endpoint.
+ * @summary Verify and durably process a Stripe webhook
+ */
+export const receiveBillingWebhook = async (billingWebhookEvent: BillingWebhookEvent, options?: Parameters<typeof customFetch>[1]): Promise<BillingWebhookAck> => {
+
+  return customFetch<BillingWebhookAck>(getReceiveBillingWebhookUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingWebhookEvent)
+  }
+);}
+
+
+
+
+
+export const getReceiveBillingWebhookMutationOptions = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof receiveBillingWebhook>>, TError,{data: BodyType<BillingWebhookEvent>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof receiveBillingWebhook>>, TError,{data: BodyType<BillingWebhookEvent>}, TContext> => {
+
+const mutationKey = ['receiveBillingWebhook'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof receiveBillingWebhook>>, {data: BodyType<BillingWebhookEvent>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  receiveBillingWebhook(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReceiveBillingWebhookMutationResult = NonNullable<Awaited<ReturnType<typeof receiveBillingWebhook>>>
+    export type ReceiveBillingWebhookMutationBody = BodyType<BillingWebhookEvent>
+    export type ReceiveBillingWebhookMutationError = ErrorType<BillingFailureResponse>
+
+    /**
+ * @summary Verify and durably process a Stripe webhook
+ */
+export const useReceiveBillingWebhook = <TError = ErrorType<BillingFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof receiveBillingWebhook>>, TError,{data: BodyType<BillingWebhookEvent>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof receiveBillingWebhook>>,
+        TError,
+        {data: BodyType<BillingWebhookEvent>},
+        TContext
+      > => {
+      return useMutation(getReceiveBillingWebhookMutationOptions(options));
+    }
 
 export const getLoginUrl = (params?: LoginParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -598,7 +898,7 @@ export const createImport = async (createImport: CreateImport, options?: Paramet
 
 
 
-export const getCreateImportMutationOptions = <TError = ErrorType<FailureResponse>,
+export const getCreateImportMutationOptions = <TError = ErrorType<FailureResponse | BillingFailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createImport>>, TError,{data: BodyType<CreateImport>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createImport>>, TError,{data: BodyType<CreateImport>}, TContext> => {
 
@@ -627,9 +927,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CreateImportMutationResult = NonNullable<Awaited<ReturnType<typeof createImport>>>
     export type CreateImportMutationBody = BodyType<CreateImport>
-    export type CreateImportMutationError = ErrorType<FailureResponse>
+    export type CreateImportMutationError = ErrorType<FailureResponse | BillingFailureResponse>
 
-    export const useCreateImport = <TError = ErrorType<FailureResponse>,
+    export const useCreateImport = <TError = ErrorType<FailureResponse | BillingFailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createImport>>, TError,{data: BodyType<CreateImport>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createImport>>,
@@ -735,7 +1035,7 @@ export const reserveImportUpload = async (importId: string,
 
 
 
-export const getReserveImportUploadMutationOptions = <TError = ErrorType<FailureResponse>,
+export const getReserveImportUploadMutationOptions = <TError = ErrorType<FailureResponse | BillingFailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reserveImportUpload>>, TError,{importId: string;data: BodyType<UploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof reserveImportUpload>>, TError,{importId: string;data: BodyType<UploadRequest>}, TContext> => {
 
@@ -764,9 +1064,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type ReserveImportUploadMutationResult = NonNullable<Awaited<ReturnType<typeof reserveImportUpload>>>
     export type ReserveImportUploadMutationBody = BodyType<UploadRequest>
-    export type ReserveImportUploadMutationError = ErrorType<FailureResponse>
+    export type ReserveImportUploadMutationError = ErrorType<FailureResponse | BillingFailureResponse>
 
-    export const useReserveImportUpload = <TError = ErrorType<FailureResponse>,
+    export const useReserveImportUpload = <TError = ErrorType<FailureResponse | BillingFailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reserveImportUpload>>, TError,{importId: string;data: BodyType<UploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof reserveImportUpload>>,
@@ -804,7 +1104,7 @@ export const completeImportUpload = async (importId: string,
 
 
 
-export const getCompleteImportUploadMutationOptions = <TError = ErrorType<FailureResponse>,
+export const getCompleteImportUploadMutationOptions = <TError = ErrorType<BillingFailureResponse | FailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeImportUpload>>, TError,{importId: string;data?: BodyType<EmptyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof completeImportUpload>>, TError,{importId: string;data?: BodyType<EmptyRequest>}, TContext> => {
 
@@ -833,9 +1133,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CompleteImportUploadMutationResult = NonNullable<Awaited<ReturnType<typeof completeImportUpload>>>
     export type CompleteImportUploadMutationBody = BodyType<EmptyRequest> | undefined
-    export type CompleteImportUploadMutationError = ErrorType<FailureResponse>
+    export type CompleteImportUploadMutationError = ErrorType<BillingFailureResponse | FailureResponse>
 
-    export const useCompleteImportUpload = <TError = ErrorType<FailureResponse>,
+    export const useCompleteImportUpload = <TError = ErrorType<BillingFailureResponse | FailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeImportUpload>>, TError,{importId: string;data?: BodyType<EmptyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof completeImportUpload>>,
@@ -1008,7 +1308,7 @@ export const getStreamImportSourceQueryKey = (importId: string,) => {
     }
 
 
-export const getStreamImportSourceQueryOptions = <TData = Awaited<ReturnType<typeof streamImportSource>>, TError = ErrorType<FailureResponse>>(importId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamImportSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getStreamImportSourceQueryOptions = <TData = Awaited<ReturnType<typeof streamImportSource>>, TError = ErrorType<BillingFailureResponse | FailureResponse>>(importId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamImportSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -1027,11 +1327,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type StreamImportSourceQueryResult = NonNullable<Awaited<ReturnType<typeof streamImportSource>>>
-export type StreamImportSourceQueryError = ErrorType<FailureResponse>
+export type StreamImportSourceQueryError = ErrorType<BillingFailureResponse | FailureResponse>
 
 
 
-export function useStreamImportSource<TData = Awaited<ReturnType<typeof streamImportSource>>, TError = ErrorType<FailureResponse>>(
+export function useStreamImportSource<TData = Awaited<ReturnType<typeof streamImportSource>>, TError = ErrorType<BillingFailureResponse | FailureResponse>>(
  importId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamImportSource>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
@@ -1144,7 +1444,7 @@ export const searchImport = async (importId: string,
 
 
 
-export const getSearchImportMutationOptions = <TError = ErrorType<FailureResponse>,
+export const getSearchImportMutationOptions = <TError = ErrorType<BillingFailureResponse | FailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchImport>>, TError,{importId: string;data: BodyType<SceneQuery>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof searchImport>>, TError,{importId: string;data: BodyType<SceneQuery>}, TContext> => {
 
@@ -1173,9 +1473,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type SearchImportMutationResult = NonNullable<Awaited<ReturnType<typeof searchImport>>>
     export type SearchImportMutationBody = BodyType<SceneQuery>
-    export type SearchImportMutationError = ErrorType<FailureResponse>
+    export type SearchImportMutationError = ErrorType<BillingFailureResponse | FailureResponse>
 
-    export const useSearchImport = <TError = ErrorType<FailureResponse>,
+    export const useSearchImport = <TError = ErrorType<BillingFailureResponse | FailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchImport>>, TError,{importId: string;data: BodyType<SceneQuery>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof searchImport>>,
@@ -1222,7 +1522,7 @@ export const getGetImportFrameQueryKey = (importId: string,
     }
 
 
-export const getGetImportFrameQueryOptions = <TData = Awaited<ReturnType<typeof getImportFrame>>, TError = ErrorType<FailureResponse>>(importId: string,
+export const getGetImportFrameQueryOptions = <TData = Awaited<ReturnType<typeof getImportFrame>>, TError = ErrorType<BillingFailureResponse | FailureResponse>>(importId: string,
     searchId: string,
     rank: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImportFrame>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
@@ -1243,11 +1543,11 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetImportFrameQueryResult = NonNullable<Awaited<ReturnType<typeof getImportFrame>>>
-export type GetImportFrameQueryError = ErrorType<FailureResponse>
+export type GetImportFrameQueryError = ErrorType<BillingFailureResponse | FailureResponse>
 
 
 
-export function useGetImportFrame<TData = Awaited<ReturnType<typeof getImportFrame>>, TError = ErrorType<FailureResponse>>(
+export function useGetImportFrame<TData = Awaited<ReturnType<typeof getImportFrame>>, TError = ErrorType<BillingFailureResponse | FailureResponse>>(
  importId: string,
     searchId: string,
     rank: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getImportFrame>>, TError, TData>, request?: SecondParameter<typeof customFetch>}

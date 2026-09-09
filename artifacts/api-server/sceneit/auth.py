@@ -310,6 +310,10 @@ def init_auth(app):
             or request.path == "/api/auth/session"
             or request.path == "/api/logout"
             or request.path.startswith(("/api/proof", "/api/imports"))
+            or (
+                request.path.startswith("/api/billing")
+                and request.path != "/api/billing/webhook"
+            )
         )
         g.auth_session = _session_from_cookie() if needs_session else None
 

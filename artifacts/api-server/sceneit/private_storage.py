@@ -8,6 +8,7 @@ import logging
 import mimetypes
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -20,6 +21,8 @@ from flask import (
 
 SIDECAR = "http://127.0.0.1:1106"
 DEFAULT_MAX_BYTES = 200_000_000
+DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+DOWNLOAD_DEADLINE_SECONDS = 120
 UPLOAD_RESERVATION_SECONDS = 15 * 60
 
 # httpx logs complete request URLs at INFO. Resumable upload URLs are bearer
@@ -223,13 +226,50 @@ def download_object(path, destination, max_bytes=DEFAULT_MAX_BYTES, generation=N
         handle = Path(destination).open("wb")
         close = True
     try:
-        blob.download_to_file(
-            handle, if_generation_match=info["generation"], timeout=120
-        )
+        for chunk in _object_range_chunks(
+                blob, 0, info["size"], info["generation"],
+                deadline_seconds=DOWNLOAD_DEADLINE_SECONDS):
+            handle.write(chunk)
     finally:
         if close:
             handle.close()
     return info
+
+
+def _object_range_chunks(blob, start, length, generation, *,
+                         deadline_seconds=DOWNLOAD_DEADLINE_SECONDS):
+    """Fetch only the authorized bytes, with one non-retried request per chunk.
+
+    BlobReader rounds tiny reads up to its minimum buffer (currently 1 MiB).
+    Besides making a one-byte HTTP response cause substantially more storage
+    egress than was metered, its seek/read buffering obscures the true upstream
+    range.  Explicit inclusive GCS ranges avoid that behavior.  ``retry=None``
+    is intentional: application operation journals, rather than hidden SDK
+    retries, decide whether another paid attempt is allowed.
+    """
+    if type(start) is not int or type(length) is not int or start < 0 or length < 0:
+        raise ValueError("Invalid object byte range")
+    deadline = time.monotonic() + deadline_seconds
+    offset = start
+    remaining = length
+    while remaining:
+        amount = min(DOWNLOAD_CHUNK_BYTES, remaining)
+        timeout = deadline - time.monotonic()
+        if timeout <= 0:
+            raise TimeoutError("Private storage download exceeded its deadline")
+        chunk = blob.download_as_bytes(
+            start=offset,
+            end=offset + amount - 1,
+            if_generation_match=generation,
+            timeout=timeout,
+            retry=None,
+            checksum=None,
+        )
+        if len(chunk) != amount:
+            raise RuntimeError("Storage returned an unexpected byte-range length")
+        offset += amount
+        remaining -= amount
+        yield chunk
 
 
 def upload_private(source, path):
@@ -279,8 +319,15 @@ def _range(value, size):
     return start, end
 
 
-def open_private(path, range_header=None, generation=None):
-    """Return a bounded, private Flask response, including strict Range handling."""
+def open_private(
+        path, range_header=None, generation=None, *, owner_id=None,
+        operation_id=None, require_membership=True):
+    """Return a bounded, private Flask response, including strict Range handling.
+
+    The reservation caps application-authorized object bytes. It cannot cap
+    baseline hosting, failed network handshakes, or infrastructure egress that
+    occurs outside this application boundary.
+    """
     info = object_info(path)
     if generation is not None and int(generation) != info["generation"]:
         from .http import problem_response
@@ -307,6 +354,20 @@ def open_private(path, range_header=None, generation=None):
     length = max(0, end - start + 1)
     if length > DEFAULT_MAX_BYTES:
         raise ValueError("Object response exceeds download limit")
+    from .billing_config import billing_settings
+    settings = billing_settings()
+    commercial = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+    if commercial:
+        if not operation_id:
+            raise ValueError("Commercial private reads require an operation id")
+        from .db import connection
+        from .quota import reserve
+        # Metadata/range validation happens first, but no object bytes are
+        # opened until this exact response reservation commits.
+        with connection() as conn:
+            reserve(
+                conn, owner_id, operation_id, {"media_bytes": length},
+                require_membership=require_membership)
     headers["Content-Length"] = str(length)
     status = 206 if selected else 200
     if selected:
@@ -314,27 +375,8 @@ def open_private(path, range_header=None, generation=None):
 
     @stream_with_context
     def body():
-        remaining = length
-        if remaining == 0:
-            return
-        handle = _blob(path, info["generation"]).open(
-            "rb",
-            chunk_size=1024 * 1024,
-            if_generation_match=info["generation"],
-            timeout=120,
-        )
-        try:
-            if start:
-                handle.seek(start)
-            while remaining:
-                chunk = handle.read(min(1024 * 1024, remaining))
-                if not chunk:
-                    raise RuntimeError("Storage response ended unexpectedly")
-                if len(chunk) > remaining:
-                    raise RuntimeError("Storage exceeded the response boundary")
-                remaining -= len(chunk)
-                yield chunk
-        finally:
-            handle.close()
+        yield from _object_range_chunks(
+            _blob(path, info["generation"]), start, length,
+            info["generation"], deadline_seconds=DOWNLOAD_DEADLINE_SECONDS)
 
     return Response(body(), status=status, headers=headers)

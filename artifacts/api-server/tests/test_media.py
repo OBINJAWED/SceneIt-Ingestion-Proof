@@ -35,7 +35,10 @@ class MediaTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_valid_mp4_returns_stable_contract(self):
-        calls = [completed(json.dumps(self.metadata).encode()), completed()]
+        calls = [
+            completed(json.dumps(self.metadata).encode()),
+            completed(b"out_time_us=12500000\nprogress=end\n"),
+        ]
         with patch("sceneit.inspect_media._run", side_effect=calls):
             result = inspect_mp4(self.path)
         self.assertEqual(result["duration"], 12.5)
@@ -47,7 +50,8 @@ class MediaTests(unittest.TestCase):
     def test_silent_visual_mp4_is_supported(self):
         self.metadata["streams"] = self.metadata["streams"][:1]
         with patch("sceneit.inspect_media._run", side_effect=[
-                completed(json.dumps(self.metadata).encode()), completed()]):
+                completed(json.dumps(self.metadata).encode()),
+                completed(b"out_time_us=12500000\nprogress=end\n")]):
             result = inspect_mp4(self.path)
         self.assertFalse(result["hasAudio"])
         self.assertIsNone(result["audioCodec"])

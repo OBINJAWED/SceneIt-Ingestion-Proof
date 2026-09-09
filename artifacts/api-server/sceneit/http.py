@@ -20,6 +20,10 @@ logger = logging.getLogger("sceneit")
 def install_http(app):
     @app.before_request
     def begin_request():
+        # Flask's normal browser JSON ceiling remains 4 KiB. Only the signed raw
+        # Stripe webhook receives its documented, independently checked ceiling.
+        if request.path == "/api/billing/webhook":
+            request.max_content_length = 256 * 1024
         request.request_id = uuid.uuid4().hex
         request.request_started = time.monotonic()
 
@@ -55,6 +59,20 @@ def install_http(app):
     @app.errorhandler(ProofError)
     def expected_error(error):
         return problem_response(error.message, error.code, error.status)
+
+    from .billing_config import BillingProblem
+    from .billing_provider import BillingProviderError
+    app.register_error_handler(
+        BillingProblem,
+        lambda error: problem_response(error.message, error.code, error.status),
+    )
+    app.register_error_handler(
+        BillingProviderError,
+        lambda _error: problem_response(
+            "The billing provider is temporarily unavailable.",
+            "billing_provider_unavailable", 503, retry_after=10,
+        ),
+    )
 
     @app.errorhandler(ValidationError)
     def validation_error(_error):

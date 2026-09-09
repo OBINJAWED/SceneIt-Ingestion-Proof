@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: billing
+    description: Private hosted billing and membership usage operations
 paths:
   /auth/session:
     get:
@@ -32,6 +34,96 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthState"
+  /billing/status:
+    get:
+      operationId: getBillingStatus
+      tags: [billing]
+      summary: Read the current account's membership and usage
+      description: Returns private, owner-scoped billing state. The response must not be cached.
+      security: [{ sessionCookie: [] }]
+      responses:
+        "200":
+          description: Current membership and, when active, the effective monthly usage window
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingStatus" }
+        "401": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
+  /billing/checkout:
+    post:
+      operationId: createBillingCheckout
+      tags: [billing]
+      summary: Create an allowlisted Stripe-hosted subscription checkout
+      description: Requires pilot admission. Price, customer, ownership, and return destinations are derived by the server.
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BillingCheckout" }
+      responses:
+        "200":
+          description: Short-lived hosted checkout destination
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingHostedSession" }
+        "400": { $ref: "#/components/responses/BillingFailure" }
+        "401": { $ref: "#/components/responses/BillingFailure" }
+        "402": { $ref: "#/components/responses/BillingFailure" }
+        "403": { $ref: "#/components/responses/BillingFailure" }
+        "409": { $ref: "#/components/responses/BillingFailure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
+        "500": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
+  /billing/portal:
+    post:
+      operationId: createBillingPortal
+      tags: [billing]
+      summary: Create an owner-scoped Stripe-hosted customer portal
+      description: Remains available to an authenticated billing customer without pilot admission or active membership.
+      security: [{ sessionCookie: [], csrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyRequest" }
+      responses:
+        "200":
+          description: Short-lived hosted customer-portal destination
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingHostedSession" }
+        "400": { $ref: "#/components/responses/BillingFailure" }
+        "401": { $ref: "#/components/responses/BillingFailure" }
+        "403": { $ref: "#/components/responses/BillingFailure" }
+        "404": { $ref: "#/components/responses/BillingFailure" }
+        "409": { $ref: "#/components/responses/BillingFailure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
+        "500": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
+  /billing/webhook:
+    post:
+      operationId: receiveBillingWebhook
+      tags: [billing]
+      summary: Verify and durably process a Stripe webhook
+      description: The server validates Stripe-Signature against the unmodified bounded request body. This is not a browser endpoint.
+      security: [{ stripeSignature: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BillingWebhookEvent" }
+      responses:
+        "200":
+          description: Processing completed or was durably recorded for bounded recovery
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingWebhookAck" }
+        "400": { $ref: "#/components/responses/BillingFailure" }
+        "409": { $ref: "#/components/responses/BillingFailure" }
+        "413": { $ref: "#/components/responses/BillingFailure" }
+        "500": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
   /login:
     get:
       operationId: login
@@ -95,8 +187,10 @@ paths:
         "200": { $ref: "#/components/responses/ImportResponse" }
         "400": { $ref: "#/components/responses/Failure" }
         "401": { $ref: "#/components/responses/Failure" }
+        "402": { $ref: "#/components/responses/BillingFailure" }
         "409": { $ref: "#/components/responses/Failure" }
-        "429": { $ref: "#/components/responses/Failure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
   /imports/{importId}:
     parameters:
       - $ref: "#/components/parameters/ImportId"
@@ -126,7 +220,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/UploadReservation"
         "400": { $ref: "#/components/responses/Failure" }
+        "402": { $ref: "#/components/responses/BillingFailure" }
         "409": { $ref: "#/components/responses/Failure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
   /imports/{importId}/complete:
     parameters:
       - $ref: "#/components/parameters/ImportId"
@@ -140,7 +237,10 @@ paths:
             schema: { $ref: "#/components/schemas/EmptyRequest" }
       responses:
         "200": { $ref: "#/components/responses/ImportResponse" }
+        "402": { $ref: "#/components/responses/BillingFailure" }
         "409": { $ref: "#/components/responses/Failure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
   /imports/{importId}/cancel:
     parameters:
       - $ref: "#/components/parameters/ImportId"
@@ -186,6 +286,9 @@ paths:
             video/mp4:
               schema: { type: string, format: binary }
         "404": { $ref: "#/components/responses/Failure" }
+        "402": { $ref: "#/components/responses/BillingFailure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
         "416": { $ref: "#/components/responses/Failure" }
   /imports/{importId}/searches:
     parameters:
@@ -215,9 +318,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ImportSearch" }
+        "402": { $ref: "#/components/responses/BillingFailure" }
         "409": { $ref: "#/components/responses/Failure" }
-        "429": { $ref: "#/components/responses/Failure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
         "502": { $ref: "#/components/responses/Failure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
   /imports/{importId}/searches/{searchId}/frames/{rank}:
     parameters:
       - $ref: "#/components/parameters/ImportId"
@@ -232,6 +337,9 @@ paths:
           content:
             image/jpeg:
               schema: { type: string, format: binary }
+        "402": { $ref: "#/components/responses/BillingFailure" }
+        "429": { $ref: "#/components/responses/BillingFailure" }
+        "503": { $ref: "#/components/responses/BillingFailure" }
         "404": { $ref: "#/components/responses/Failure" }
   /proof:
     get:
@@ -419,6 +527,7 @@ components:
   securitySchemes:
     sessionCookie: { type: apiKey, in: cookie, name: __Host-sceneit_session }
     csrfToken: { type: apiKey, in: header, name: X-CSRF-Token }
+    stripeSignature: { type: apiKey, in: header, name: Stripe-Signature }
   parameters:
     ImportId:
       name: importId
@@ -443,6 +552,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ProtectedApiFailure"
+    BillingFailure:
+      description: Safe billing, entitlement, quota, capacity, or validation failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BillingProblem"
   schemas:
     EmptyRequest:
       type: object
@@ -467,9 +582,149 @@ components:
           properties:
             id: { type: string }
             firstName: { type: [string, "null"] }
+    BillingCheckout:
+      type: object
+      additionalProperties: false
+      required: [plan, idempotencyKey]
+      properties:
+        plan: { type: string, enum: [monthly, yearly] }
+        idempotencyKey: { type: string, format: uuid }
+    BillingHostedSession:
+      type: object
+      additionalProperties: false
+      required: [url, expiresAt]
+      properties:
+        url: { type: string, format: uri }
+        expiresAt: { type: [string, "null"], format: date-time }
+    BillingWebhookEvent:
+      type: object
+      description: Provider event whose exact raw bytes are verified before parsing.
+      additionalProperties: true
+    BillingWebhookAck:
+      type: object
+      additionalProperties: false
+      required: [received]
+      properties:
+        received: { type: boolean, const: true }
+    BillingMetric:
+      type: object
+      additionalProperties: false
+      required: [limit, used, remaining]
+      properties:
+        limit: { type: integer, minimum: 0 }
+        used: { type: integer, minimum: 0 }
+        remaining: { type: integer, minimum: 0 }
+    BillingMetrics:
+      type: object
+      additionalProperties: false
+      required: [imports, upload_attempts, analysis_seconds, searches, media_bytes, frames]
+      properties:
+        imports: { $ref: "#/components/schemas/BillingMetric" }
+        upload_attempts: { $ref: "#/components/schemas/BillingMetric" }
+        analysis_seconds: { $ref: "#/components/schemas/BillingMetric" }
+        searches: { $ref: "#/components/schemas/BillingMetric" }
+        media_bytes: { $ref: "#/components/schemas/BillingMetric" }
+        frames: { $ref: "#/components/schemas/BillingMetric" }
+    BillingUsage:
+      type: object
+      additionalProperties: false
+      required: [windowStart, windowEnd, metrics, storage, workStopped]
+      properties:
+        windowStart: { type: [string, "null"], format: date-time }
+        windowEnd: { type: [string, "null"], format: date-time }
+        metrics: { $ref: "#/components/schemas/BillingMetrics" }
+        storage: { $ref: "#/components/schemas/BillingMetric" }
+        workStopped: { type: boolean }
+    BillingStatus:
+      type: object
+      additionalProperties: false
+      required: [enabled, environment, membership, paidThrough, cancelAtPeriodEnd, usage]
+      properties:
+        enabled: { type: boolean }
+        environment: { type: [string, "null"], enum: [test, live, null] }
+        membership: { type: string, enum: [disabled, active, inactive] }
+        paidThrough: { type: [string, "null"], format: date-time }
+        cancelAtPeriodEnd: { type: boolean }
+        usage:
+          anyOf:
+            - $ref: "#/components/schemas/BillingUsage"
+            - { type: "null" }
+    BillingProblem:
+      type: object
+      additionalProperties: false
+      description: |
+        Safe commercial-work failure. Current domain code/status mappings are:
+        `invalid_request`, `invalid_plan`, `invalid_idempotency_key`, `invalid_webhook` (400);
+        `http_401` (401); `membership_required` (402);
+        `pilot_not_admitted`, `origin_rejected`, `http_403` (403);
+        `billing_customer_missing` (404);
+        `idempotency_conflict`, `checkout_outcome_unknown`, `subscription_exists`,
+        `billing_environment_mismatch`, `billing_customer_outcome_unknown`,
+        `billing_relationship_invalid`, `reservation_conflict`, `reservation_released`,
+        `webhook_rejected`, `invoice_not_paid`, `checkout_completed`, `checkout_exists`,
+        `checkout_plan_conflict`, `checkout_state_invalid` (409);
+        `participant_throttled`, `owner_quota_exhausted`, `storage_quota_exhausted` (429);
+        and `billing_disabled`, `billing_unavailable`, `billing_provider_unavailable`,
+        `provider_outcome_unknown`, `provider_rejected`, `service_work_stopped`,
+        `service_capacity_exhausted`, `database_unavailable`,
+        `database_capacity_exhausted`, `upstream_unavailable` (503).
+        `webhook_too_large` is 413 and an unexpected failure is `internal_error` (500).
+        Validation failures use `invalid_request`; `validation_error` is reserved for
+        compatible validation emitters.
+      required: [error, code, state]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum:
+            - membership_required
+            - billing_disabled
+            - service_work_stopped
+            - service_capacity_exhausted
+            - owner_quota_exhausted
+            - storage_quota_exhausted
+            - billing_unavailable
+            - validation_error
+            - invalid_request
+            - invalid_plan
+            - invalid_idempotency_key
+            - pilot_not_admitted
+            - origin_rejected
+            - http_401
+            - http_403
+            - billing_customer_missing
+            - billing_environment_mismatch
+            - billing_customer_outcome_unknown
+            - billing_relationship_invalid
+            - idempotency_conflict
+            - checkout_outcome_unknown
+            - checkout_completed
+            - checkout_exists
+            - checkout_plan_conflict
+            - checkout_state_invalid
+            - subscription_exists
+            - reservation_conflict
+            - reservation_released
+            - provider_outcome_unknown
+            - provider_rejected
+            - invalid_webhook
+            - webhook_too_large
+            - webhook_rejected
+            - invoice_not_paid
+            - billing_provider_unavailable
+            - participant_throttled
+            - database_unavailable
+            - database_capacity_exhausted
+            - upstream_unavailable
+            - internal_error
+        state:
+          type: string
+          enum: [admission_required, quota_exhausted, processing, uncertain, service_unavailable, not_found, unauthorized]
+        retryable: { type: boolean, default: false }
+        retryAfterSeconds: { type: ["integer", "null"], minimum: 0 }
     ImportConfig:
       type: object
-      required: [maxBytes, minDurationSeconds, maxDurationSeconds, retentionDays, ownerImportLimit, appImportLimit, ownerSearchLimit, appSearchLimit, workerAvailable]
+      required: [maxBytes, minDurationSeconds, maxDurationSeconds, retentionDays, ownerImportLimit, appImportLimit, ownerSearchLimit, appSearchLimit, quotaMode, workerAvailable]
       properties:
         maxBytes: { type: integer }
         minDurationSeconds: { type: number }
@@ -479,6 +734,10 @@ components:
         appImportLimit: { type: integer }
         ownerSearchLimit: { type: integer }
         appSearchLimit: { type: integer }
+        quotaMode:
+          type: string
+          enum: [lifetime, monthly]
+          description: Whether reported owner import/search limits are pilot lifetime counters or commercial monthly allowances.
         workerAvailable: { type: boolean }
     CreateImport:
       type: object
@@ -509,7 +768,7 @@ components:
         expiresAt: { type: string }
     VideoImport:
       type: object
-      required: [id, title, entryMethod, sourceKind, sourceUrl, externalId, state, statusMessage, progressPercent, errorCode, durationSeconds, fileSizeBytes, hasAudio, sourcePlaybackAvailable, sourcePlaybackUrl, playbackAuthorized, timelineStatus, createdAt, updatedAt, expiresAt, searchesUsed, searchLimit, importsUsed, importLimit]
+      required: [id, title, entryMethod, sourceKind, sourceUrl, externalId, state, statusMessage, progressPercent, errorCode, durationSeconds, fileSizeBytes, hasAudio, sourcePlaybackAvailable, sourcePlaybackUrl, playbackAuthorized, timelineStatus, createdAt, updatedAt, expiresAt, searchesUsed, searchLimit, importsUsed, importLimit, quotaMode]
       properties:
         id: { type: string }
         title: { type: string }
@@ -535,6 +794,10 @@ components:
         searchLimit: { type: integer }
         importsUsed: { type: integer }
         importLimit: { type: integer }
+        quotaMode:
+          type: string
+          enum: [lifetime, monthly]
+          description: Semantics of the reported import and search counters.
     ImportMatch:
       type: object
       required: [rank, startSeconds, endSeconds, confidenceLabel, frameUrl, sourceUrl]

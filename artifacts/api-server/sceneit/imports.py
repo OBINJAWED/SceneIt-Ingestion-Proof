@@ -14,6 +14,7 @@ from .import_limits import (
     APP_IMPORT_LIMIT, APP_SEARCH_LIMIT, MAX_BYTES, MAX_DURATION_SECONDS,
     MIN_DURATION_SECONDS, OWNER_IMPORT_LIMIT, OWNER_SEARCH_LIMIT,
     RETENTION_DAYS, ImportProblem, reserve_import_budget,
+    reserve_import_operation,
 )
 from .import_search import list_import_searches, search_import
 from .storage import private_object_path
@@ -65,6 +66,18 @@ def _auth(write=False):
 
 
 def _usage(conn, owner_id):
+    from .billing_config import billing_settings
+    settings = billing_settings()
+    commercial = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+    if commercial:
+        from .quota import usage_status
+        status = usage_status(owner_id, conn)
+        return {
+            "imports_used": status["metrics"]["imports"]["used"],
+            "searches_used": status["metrics"]["searches"]["used"],
+            "import_limit": status["metrics"]["imports"]["limit"],
+            "search_limit": status["metrics"]["searches"]["limit"],
+        }
     owner = conn.execute(
         "SELECT imports_used,searches_used FROM sceneit_import_usage WHERE owner_id=%s",
         (owner_id,)).fetchone()
@@ -73,6 +86,9 @@ def _usage(conn, owner_id):
 
 def present_import(row, usage=None):
     usage = usage or {"imports_used": 0, "searches_used": 0}
+    from .billing_config import billing_settings
+    billing = billing_settings()
+    commercial = billing["enabled"] if isinstance(billing, dict) else billing.enabled
     available = bool(
         row["media_path"] and row["playback_authorized"] and row["state"] == "ready"
         and row["expires_at"] > datetime.now(row["expires_at"].tzinfo)
@@ -92,8 +108,11 @@ def present_import(row, usage=None):
         "createdAt": row["created_at"].isoformat(),
         "updatedAt": row["updated_at"].isoformat(),
         "expiresAt": row["expires_at"].isoformat(),
-        "searchesUsed": usage["searches_used"], "searchLimit": OWNER_SEARCH_LIMIT,
-        "importsUsed": usage["imports_used"], "importLimit": OWNER_IMPORT_LIMIT,
+        "searchesUsed": usage["searches_used"],
+        "searchLimit": usage.get("search_limit", OWNER_SEARCH_LIMIT),
+        "importsUsed": usage["imports_used"],
+        "importLimit": usage.get("import_limit", OWNER_IMPORT_LIMIT),
+        "quotaMode": "monthly" if commercial else "lifetime",
     }
 
 
@@ -118,11 +137,23 @@ def import_config():
             available = bool(row and row["available"])
     except Exception:
         available = False
+    from .billing_config import billing_settings
+    billing = billing_settings()
+    commercial = billing["enabled"] if isinstance(billing, dict) else billing.enabled
+    owner_limits = billing["limits"] if isinstance(billing, dict) else billing.limits
+    app_limits = billing["app_limits"] if isinstance(billing, dict) else billing.app_limits
     return jsonify({
         "maxBytes": MAX_BYTES, "minDurationSeconds": MIN_DURATION_SECONDS,
         "maxDurationSeconds": MAX_DURATION_SECONDS, "retentionDays": RETENTION_DAYS,
-        "ownerImportLimit": OWNER_IMPORT_LIMIT, "appImportLimit": APP_IMPORT_LIMIT,
-        "ownerSearchLimit": OWNER_SEARCH_LIMIT, "appSearchLimit": APP_SEARCH_LIMIT,
+        "ownerImportLimit": (
+            owner_limits["imports"] if commercial else OWNER_IMPORT_LIMIT),
+        "appImportLimit": (
+            app_limits["imports"] if commercial else APP_IMPORT_LIMIT),
+        "ownerSearchLimit": (
+            owner_limits["searches"] if commercial else OWNER_SEARCH_LIMIT),
+        "appSearchLimit": (
+            app_limits["searches"] if commercial else APP_SEARCH_LIMIT),
+        "quotaMode": "monthly" if commercial else "lifetime",
         "workerAvailable": available,
     })
 
@@ -189,7 +220,8 @@ def create_import():
              source["sourceKind"], source.get("sourceUrl"), source.get("externalId"),
              source.get("title"), state, message, body.playbackAuthorized)).fetchone()
         if state == "queued":
-            ok, code = reserve_import_budget(conn, owner)
+            ok, code = reserve_import_operation(
+                conn, owner, f"import:{import_id}")
             if not ok:
                 raise ImportProblem(code, "The cumulative import allowance has been reached.", 429)
             row = conn.execute(
@@ -217,49 +249,57 @@ def reserve_upload(import_id):
         raise ImportProblem("invalid_upload", "Choose an MP4 no larger than 200 MB.") from None
     if not body.fileName.lower().endswith(".mp4"):
         raise ImportProblem("invalid_upload", "The selected file must have an .mp4 name.")
-    from .private_storage import (
-        cancel_upload_session, decrypt_upload_session, delete_object,
-        object_info, reserve_upload as storage_reserve,
-    )
+    from .private_storage import reserve_upload as storage_reserve
+    from .upload_attempts import (
+        UploadAttemptBusy, create_attempt, mark_uncertain, record_session)
+    attempt_id = uuid.uuid4()
+    path = private_object_path(
+        f"imports/{import_id}/uploads/{uuid.uuid4()}.mp4")
     with connection() as conn:
         row = _owned(conn, owner, import_id, True)
         if row["state"] not in ("file_required", "awaiting_upload"):
             raise ImportProblem("upload_not_allowed", "This import is not awaiting a file.", 409)
         if not row["budget_reserved"]:
-            ok, code = reserve_import_budget(conn, owner)
+            ok, code = reserve_import_operation(
+                conn, owner, f"import:{import_id}")
             if not ok:
                 raise ImportProblem(code, "The cumulative import allowance has been reached.", 429)
-        old_path = row["upload_path"]
-        path = private_object_path(
-            f"imports/{import_id}/uploads/{uuid.uuid4()}.mp4")
-        # Re-selection revokes the prior bearer session and removes a completed
-        # but unaccepted generation before issuing another create-only session.
+        from .billing_config import billing_settings
+        settings = billing_settings()
+        commercial = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+        if commercial:
+            from .quota import reserve, reserve_storage
+            reserve(
+                conn, owner, f"import:{import_id}:upload:{path}",
+                {"upload_attempts": 1})
+            reserve_storage(conn, owner, path, body.sizeBytes)
         try:
-            if row["upload_session_reference"]:
-                cancel_upload_session(
-                    decrypt_upload_session(row["upload_session_reference"]))
-            if old_path:
-                try:
-                    stale = object_info(old_path)
-                except Exception as exc:
-                    if type(exc).__name__ != "NotFound":
-                        raise
-                else:
-                    delete_object(old_path, generation=stale["generation"])
-            reservation = storage_reserve(path, body.sizeBytes)
-        except Exception:
-            conn.execute(
-                "UPDATE sceneit_imports SET budget_reserved=true,"
-                "status_message='Private upload reservation is temporarily unavailable.',"
-                "updated_at=now() WHERE id=%s", (import_id,))
-            from .http import problem_response
-            return problem_response(
-                "A constrained private upload reservation could not be prepared.",
-                "upload_reservation_unavailable", 503,
-            )
+            create_attempt(
+                conn, import_id, owner, attempt_id, path, body.sizeBytes)
+        except UploadAttemptBusy:
+            raise ImportProblem(
+                "upload_attempt_pending",
+                "The previous upload initiation must be reconciled first.",
+                409) from None
+    # Quota and occupancy transactions must commit before any storage call.
+    try:
+        reservation = storage_reserve(path, body.sizeBytes)
+    except Exception:
+        # Initiation exceptions are ambiguous. Never release quota/occupancy or
+        # infer safety from an absent object.
+        mark_uncertain(attempt_id, connection)
+        from .http import problem_response
+        return problem_response(
+            "A constrained private upload reservation could not be prepared.",
+            "upload_reservation_unavailable", 503,
+        )
+    with connection() as conn:
+        current = _owned(conn, owner, import_id, True)
         session_reference = reservation.pop("sessionReference")
-        display_title = row["title"]
-        if row["source_kind"] == "file":
+        expires_at = datetime.fromisoformat(reservation["expiresAt"])
+        record_session(conn, attempt_id, session_reference, expires_at)
+        display_title = current["title"]
+        if current["source_kind"] == "file":
             display_title = body.fileName.replace("\\", "/").rsplit("/", 1)[-1][:255]
         row = conn.execute(
             "UPDATE sceneit_imports SET state='awaiting_upload',"
@@ -267,10 +307,25 @@ def reserve_upload(import_id):
             "upload_path=%s,upload_expected_bytes=%s,upload_reserved_at=now(),"
             "upload_expires_at=%s,upload_session_reference=%s,budget_reserved=true,"
             "title=%s,updated_at=now() "
-            "WHERE id=%s RETURNING *",
-            (path, body.sizeBytes, datetime.fromisoformat(reservation["expiresAt"]),
-             session_reference, display_title, import_id)).fetchone()
-        usage = _usage(conn, owner)
+            "WHERE id=%s AND upload_attempt_id=%s "
+            "AND state IN ('file_required','awaiting_upload') RETURNING *",
+            (path, body.sizeBytes, expires_at, session_reference, display_title,
+             import_id, attempt_id)).fetchone()
+        if not row:
+            # record_session persisted the secret even if cancellation or a
+            # newer fence won. Ensure worker cleanup is requested; never return
+            # a bearer URL to a cancelled request.
+            conn.execute(
+                "UPDATE sceneit_upload_attempts SET state='revoke_requested',"
+                "updated_at=now() WHERE id=%s AND state='active'", (attempt_id,))
+            usage = None
+        else:
+            usage = _usage(conn, owner)
+    if not row:
+        from .http import problem_response
+        return problem_response(
+            "The import was cancelled while the upload was being prepared.",
+            "upload_cancelled", 409)
     return jsonify({"import": present_import(row, usage), **reservation})
 
 
@@ -310,9 +365,20 @@ def complete_upload(import_id):
             raise ImportProblem("upload_content_type_invalid",
                                 "The uploaded object is not an MP4.", 409)
         if not row["budget_reserved"]:
-            ok, code = reserve_import_budget(conn, owner)
+            ok, code = reserve_import_operation(
+                conn, owner, f"import:{import_id}")
             if not ok:
                 raise ImportProblem(code, "The cumulative import allowance has been reached.", 429)
+        if not row.get("upload_attempt_id"):
+            raise ImportProblem(
+                "upload_attempt_missing",
+                "The upload attempt requires reconciliation.", 409)
+        from .upload_attempts import record_generation
+        if not record_generation(
+                conn, row["upload_attempt_id"], str(info["generation"])):
+            raise ImportProblem(
+                "upload_attempt_not_active",
+                "The upload attempt is no longer active.", 409)
         row = conn.execute(
             "UPDATE sceneit_imports SET state='queued',status_message='Queued for validation.',"
             "progress_percent=NULL,upload_generation=%s,budget_reserved=true,"
@@ -334,6 +400,9 @@ def cancel_import(import_id):
                 "UPDATE sceneit_imports SET state='cancel_requested',"
                 "status_message='Cancellation and cleanup requested.',updated_at=now() "
                 "WHERE id=%s RETURNING *", (import_id,)).fetchone()
+        if row.get("upload_attempt_id"):
+            from .upload_attempts import request_revocation
+            request_revocation(conn, import_id)
         usage = _usage(conn, owner)
     return jsonify(present_import(row, usage))
 
@@ -365,8 +434,9 @@ def import_source(import_id):
     if row["expires_at"] <= datetime.now(row["expires_at"].tzinfo):
         raise ImportProblem("import_expired", "Import expired.", 410)
     from .private_storage import open_private
-    return open_private(row["media_path"], request.headers.get("Range"),
-                        row["media_generation"])
+    return open_private(
+        row["media_path"], request.headers.get("Range"), row["media_generation"],
+        owner_id=owner, operation_id=f"media:source:{uuid.uuid4()}")
 
 
 @imports_bp.get("/api/imports/<uuid:import_id>/searches")
@@ -384,7 +454,7 @@ def import_frame(import_id, search_id, rank):
     owner = _auth()
     with connection() as conn:
         row = conn.execute(
-            "SELECT i.media_path,i.media_generation,i.expires_at,s.matches "
+            "SELECT i.media_path,i.media_generation,i.file_size_bytes,i.expires_at,s.matches "
             "FROM sceneit_imports i "
             "JOIN sceneit_import_searches s ON s.import_id=i.id "
             "WHERE i.id=%s AND i.owner_id=%s AND s.id=%s AND s.owner_id=%s "
@@ -399,9 +469,24 @@ def import_frame(import_id, search_id, rank):
         from .media import private_frame
         match = row["matches"][rank-1]
         midpoint = (match["startSeconds"] + match["endSeconds"]) / 2
+        operation_id = f"media:frame:{uuid.uuid4()}"
+        from .billing_config import billing_settings
+        settings = billing_settings()
+        commercial = settings["enabled"] if isinstance(settings, dict) else settings.enabled
+        if commercial:
+            from .quota import reserve
+            with connection() as conn:
+                reserve(
+                    conn, owner, operation_id,
+                    {"frames": 1, "media_bytes": int(row["file_size_bytes"])})
         output = private_frame(row["media_path"], row["media_generation"], midpoint)
         if not output:
             raise ImportProblem("frame_unavailable", "Source frame is unavailable.", 503)
+        if commercial:
+            with connection() as conn:
+                reserve(
+                    conn, owner, f"{operation_id}:response",
+                    {"media_bytes": len(output)})
         response = send_file(io.BytesIO(output), mimetype="image/jpeg")
         response.headers["Cache-Control"] = "private, no-store"
         return response

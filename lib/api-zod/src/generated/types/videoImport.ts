@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { VideoImportEntryMethod } from './videoImportEntryMethod';
+import type { VideoImportQuotaMode } from './videoImportQuotaMode';
 import type { VideoImportSourceKind } from './videoImportSourceKind';
 import type { VideoImportState } from './videoImportState';
 import type { VideoImportTimelineStatus } from './videoImportTimelineStatus';
@@ -43,4 +44,6 @@ export interface VideoImport {
   searchLimit: number;
   importsUsed: number;
   importLimit: number;
+  /** Semantics of the reported import and search counters. */
+  quotaMode: VideoImportQuotaMode;
 }

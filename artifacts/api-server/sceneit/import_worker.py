@@ -15,6 +15,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
+from .billing_config import BillingProblem
 from .db import autocommit_connection, connection
 from .import_limits import (ABANDONED_UPLOAD_SECONDS, MAX_BYTES,
                             MAX_DURATION_SECONDS, MIN_DURATION_SECONDS)
@@ -30,6 +31,34 @@ logger = logging.getLogger("sceneit.import_worker")
 
 class WorkerLockLost(RuntimeError):
     pass
+
+
+def _commercial_enabled():
+    from .billing_config import billing_settings
+    settings = billing_settings()
+    return settings["enabled"] if isinstance(settings, dict) else settings.enabled
+
+
+def _check_commercial_work(owner_id):
+    if _commercial_enabled():
+        from .quota import check_work
+        with connection() as conn:
+            check_work(conn, owner_id)
+
+
+def _reserve_media_read(job, size_bytes, purpose):
+    """Charge every actual private/network read under a fresh attempt id."""
+    if not _commercial_enabled():
+        return
+    if (isinstance(size_bytes, bool) or not isinstance(size_bytes, int)
+            or size_bytes < 1 or size_bytes > MAX_BYTES):
+        raise ValueError("file_too_large")
+    from .quota import reserve
+    with connection() as conn:
+        reserve(
+            conn, job["owner_id"],
+            f"import:{job['id']}:media:{purpose}:{uuid.uuid4()}",
+            {"media_bytes": size_bytes})
 
 
 def heartbeat():
@@ -242,6 +271,8 @@ def _prepare_media(job):
             except NotFound:
                 pending = None
             if pending:
+                _reserve_media_read(
+                    job, int(pending["size"]), "resume-validation")
                 download_object(
                     intended_path, temp.name, max_bytes=MAX_BYTES,
                     generation=pending["generation"])
@@ -249,6 +280,11 @@ def _prepare_media(job):
                     from .private_storage import delete_object
                     delete_object(
                         intended_path, generation=pending["generation"])
+                    from .quota import release_storage
+                    with connection() as conn:
+                        release_storage(
+                            conn, intended_path,
+                            f"confirmed duplicate cleanup {job['id']}")
                     return
                 _update(
                     job, media_generation=str(pending["generation"]),
@@ -259,6 +295,8 @@ def _prepare_media(job):
         if job["upload_path"]:
             _update(job, state="validating", status_message="Validating uploaded MP4.",
                     progress_percent=None)
+            expected = int(job["upload_expected_bytes"])
+            _reserve_media_read(job, expected, "upload-validation")
             download_object(job["upload_path"], temp.name, max_bytes=MAX_BYTES,
                             generation=job["upload_generation"])
             if _validate(job, temp.name):
@@ -274,6 +312,10 @@ def _prepare_media(job):
             _update(job, state="resolving", status_message="Resolving permitted video media.",
                     progress_percent=None)
             from .platforms import resolve_link
+            # The resolver enforces MAX_BYTES but cannot know the exact remote
+            # response size before retrieval, so reserve its full accepted
+            # transfer boundary before opening the network source.
+            _reserve_media_read(job, MAX_BYTES, "link-resolution")
             resolved = resolve_link(
                 {"sourceKind": job["source_kind"], "sourceUrl": job["source_url"],
                  "externalId": job["external_id"], "title": job["title"]},
@@ -289,6 +331,14 @@ def _prepare_media(job):
             if _validate(job, temp.name):
                 return
             path = private_object_path(f"imports/{job['id']}/source.mp4")
+            if _commercial_enabled():
+                from .quota import reserve_storage
+                # Validation supplied the exact server-measured byte count.
+                # Occupancy commits before the create-only object mutation.
+                with connection() as conn:
+                    reserve_storage(
+                        conn, job["owner_id"], path,
+                        int(job["file_size_bytes"]))
             _update(
                 job, media_path=path, media_generation=None,
                 status_message="Saving validated private media.",
@@ -311,6 +361,18 @@ def _provider_step(job, client):
               "A provider write may have completed; operator reconciliation is required.",
               "needs_review", preserve_marker=True)
         return
+    if _commercial_enabled():
+        from .quota import check_work, reserve
+        duration = float(job["duration_seconds"])
+        if not math.isfinite(duration) or duration <= 0:
+            raise ValueError("duration_out_of_range")
+        with connection() as conn:
+            check_work(conn, job["owner_id"])
+            # One identity follows the import through retries and billing
+            # windows. An interrupted mutation keeps this reservation.
+            reserve(
+                conn, job["owner_id"], f"import:{job['id']}:analysis",
+                {"analysis_seconds": math.ceil(duration)})
     if not job["index_id"]:
         _assert_fence(job)
         with connection() as conn:
@@ -333,6 +395,8 @@ def _provider_step(job, client):
         temp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
         temp.close()
         try:
+            _reserve_media_read(
+                job, int(job["file_size_bytes"]), "provider-upload")
             download_object(job["media_path"], temp.name, max_bytes=MAX_BYTES,
                             generation=job["media_generation"])
             _update(job, state="uploading", provider_write_marker="upload_asset",
@@ -431,10 +495,27 @@ def _cancel(job, client):
             return
         from .private_storage import (
             cancel_upload_session, decrypt_upload_session, delete_object,
-            object_info,
-        )
+            object_info)
         from google.api_core.exceptions import NotFound
-        if job.get("upload_session_reference"):
+        if job.get("upload_attempt_id"):
+            from .upload_attempts import (
+                cleanup_attempt, request_revocation)
+            with connection() as conn:
+                request_revocation(conn, job["id"])
+                attempts = conn.execute(
+                    "SELECT id FROM sceneit_upload_attempts WHERE import_id=%s "
+                    "AND state<>'revoked'", (job["id"],)).fetchall()
+            resolved = [
+                cleanup_attempt(attempt["id"], connection)
+                for attempt in attempts
+            ]
+            if not all(resolved):
+                _fail(
+                    job, "upload_cleanup_uncertain",
+                    "An upload initiation requires reconciliation before cleanup.",
+                    "needs_review")
+                return
+        elif job.get("upload_session_reference"):
             cancel_upload_session(
                 decrypt_upload_session(job["upload_session_reference"]))
         # Fingerprint deduplication may reuse the owner's existing provider IDs
@@ -465,19 +546,35 @@ def _cancel(job, client):
                 client.delete_index(job["index_id"])
                 _confirmed_write(job, index_id=None, state="cancel_requested")
             if job["media_path"]:
+                media_deleted = False
                 try:
                     info = object_info(job["media_path"])
                     generation = job["media_generation"] or info["generation"]
                     delete_object(job["media_path"], generation=generation)
+                    media_deleted = True
                 except NotFound:
-                    pass
+                    media_deleted = True
+                if media_deleted:
+                    from .upload_attempts import confirm_object_absence
+                    with connection() as conn:
+                        confirm_object_absence(
+                            conn, job["media_path"],
+                            f"confirmed import cleanup {job['id']}")
         if job["upload_path"] and job["upload_path"] != job["media_path"]:
+            upload_deleted = False
             try:
                 info = object_info(job["upload_path"])
                 generation = job["upload_generation"] or info["generation"]
                 delete_object(job["upload_path"], generation=generation)
+                upload_deleted = True
             except NotFound:
-                pass
+                upload_deleted = True
+            if upload_deleted:
+                from .upload_attempts import confirm_object_absence
+                with connection() as conn:
+                    confirm_object_absence(
+                        conn, job["upload_path"],
+                        f"confirmed import upload cleanup {job['id']}")
         if not shared and job.get("sha256"):
             with connection() as conn:
                 conn.execute(
@@ -501,6 +598,8 @@ def process_job(job, client=None):
     owned_client = None
     try:
         started = job.get("processing_started_at")
+        if job["state"] != "cancel_requested":
+            _check_commercial_work(job["owner_id"])
         if (job["state"] != "cancel_requested" and started and
                 (datetime.now(timezone.utc) - started).total_seconds() >
                 PROCESSING_DEADLINE_SECONDS):
@@ -540,6 +639,15 @@ def process_job(job, client=None):
             job, error_code="resource_busy",
             status_message="Media processing capacity is busy; retry scheduled.",
             next_attempt_at=datetime.now(timezone.utc) + timedelta(seconds=10))
+    except BillingProblem as exc:
+        if exc.code in ("service_work_stopped", "service_capacity_exhausted"):
+            _update(
+                job, error_code=exc.code,
+                status_message="Commercial work is temporarily paused; retry scheduled.",
+                processing_started_at=None,
+                next_attempt_at=datetime.now(timezone.utc) + timedelta(minutes=5))
+            return
+        _fail(job, exc.code, exc.message)
     except ProviderError as exc:
         if exc.ambiguous:
             _fail(job, "provider_write_uncertain",
@@ -583,9 +691,12 @@ def process_job(job, client=None):
 
 def cleanup_expired():
     """Queue confirmed cleanup without deleting cumulative usage counters."""
+    # Replacement attempts are independently fenced and may be cleaned while
+    # the newer import remains active.
+    from .upload_attempts import cleanup_requested
+    cleanup_requested(connection_factory=connection)
     # The existing always-on worker is also the bounded reconciliation clock
-    # for proof searches. This only changes database state; it never calls or
-    # retries the provider.
+    # for proof searches. Proof reconciliation itself never retries a provider.
     from .proof import reconcile_search_operations
     reconcile_search_operations()
     with connection() as conn:

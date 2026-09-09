@@ -8,7 +8,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 PROTECTED_PREFIXES = ("/api/proof", "/api/imports")
 PRIVATE_PREFIXES = PROTECTED_PREFIXES + (
-    "/api/auth", "/api/login", "/api/callback", "/api/logout",
+    "/api/auth", "/api/login", "/api/callback", "/api/logout", "/api/billing",
 )
 
 
@@ -106,7 +106,11 @@ def install_security(app):
                 from .resources import admit_participant
 
                 admit_participant(session["user_id"], action="expensive_http")
-        if request.method in ("POST", "PUT", "PATCH", "DELETE") and not _same_origin():
+        if (
+            request.path != "/api/billing/webhook"
+            and request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and not _same_origin()
+        ):
             from .http import problem_response
 
             return problem_response(

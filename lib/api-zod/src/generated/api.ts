@@ -31,6 +31,145 @@ export const GetCurrentAuthUserResponse = zod.object({
 })
 
 
+/**
+ * Returns private, owner-scoped billing state. The response must not be cached.
+ * @summary Read the current account's membership and usage
+ */
+export const getBillingStatusResponseUsageOneMetricsImportsLimitMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsImportsUsedMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsImportsRemainingMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsUploadAttemptsLimitMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsUploadAttemptsUsedMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsUploadAttemptsRemainingMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsAnalysisSecondsLimitMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsAnalysisSecondsUsedMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsAnalysisSecondsRemainingMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsSearchesLimitMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsSearchesUsedMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsSearchesRemainingMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsMediaBytesLimitMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsMediaBytesUsedMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsMediaBytesRemainingMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsFramesLimitMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsFramesUsedMin = 0;
+
+export const getBillingStatusResponseUsageOneMetricsFramesRemainingMin = 0;
+
+export const getBillingStatusResponseUsageOneStorageLimitMin = 0;
+
+export const getBillingStatusResponseUsageOneStorageUsedMin = 0;
+
+export const getBillingStatusResponseUsageOneStorageRemainingMin = 0;
+
+
+
+export const GetBillingStatusResponse = zod.object({
+  "enabled": zod.boolean(),
+  "environment": zod.union([zod.literal('test'),zod.literal('live'),zod.literal(null)]).nullable(),
+  "membership": zod.enum(['disabled', 'active', 'inactive']),
+  "paidThrough": zod.coerce.date().nullable(),
+  "cancelAtPeriodEnd": zod.boolean(),
+  "usage": zod.union([zod.object({
+  "windowStart": zod.coerce.date().nullable(),
+  "windowEnd": zod.coerce.date().nullable(),
+  "metrics": zod.object({
+  "imports": zod.object({
+  "limit": zod.number().int().min(getBillingStatusResponseUsageOneMetricsImportsLimitMin),
+  "used": zod.number().int().min(getBillingStatusResponseUsageOneMetricsImportsUsedMin),
+  "remaining": zod.number().int().min(getBillingStatusResponseUsageOneMetricsImportsRemainingMin)
+}),
+  "upload_attempts": zod.object({
+  "limit": zod.number().int().min(getBillingStatusResponseUsageOneMetricsUploadAttemptsLimitMin),
+  "used": zod.number().int().min(getBillingStatusResponseUsageOneMetricsUploadAttemptsUsedMin),
+  "remaining": zod.number().int().min(getBillingStatusResponseUsageOneMetricsUploadAttemptsRemainingMin)
+}),
+  "analysis_seconds": zod.object({
+  "limit": zod.number().int().min(getBillingStatusResponseUsageOneMetricsAnalysisSecondsLimitMin),
+  "used": zod.number().int().min(getBillingStatusResponseUsageOneMetricsAnalysisSecondsUsedMin),
+  "remaining": zod.number().int().min(getBillingStatusResponseUsageOneMetricsAnalysisSecondsRemainingMin)
+}),
+  "searches": zod.object({
+  "limit": zod.number().int().min(getBillingStatusResponseUsageOneMetricsSearchesLimitMin),
+  "used": zod.number().int().min(getBillingStatusResponseUsageOneMetricsSearchesUsedMin),
+  "remaining": zod.number().int().min(getBillingStatusResponseUsageOneMetricsSearchesRemainingMin)
+}),
+  "media_bytes": zod.object({
+  "limit": zod.number().int().min(getBillingStatusResponseUsageOneMetricsMediaBytesLimitMin),
+  "used": zod.number().int().min(getBillingStatusResponseUsageOneMetricsMediaBytesUsedMin),
+  "remaining": zod.number().int().min(getBillingStatusResponseUsageOneMetricsMediaBytesRemainingMin)
+}),
+  "frames": zod.object({
+  "limit": zod.number().int().min(getBillingStatusResponseUsageOneMetricsFramesLimitMin),
+  "used": zod.number().int().min(getBillingStatusResponseUsageOneMetricsFramesUsedMin),
+  "remaining": zod.number().int().min(getBillingStatusResponseUsageOneMetricsFramesRemainingMin)
+})
+}),
+  "storage": zod.object({
+  "limit": zod.number().int().min(getBillingStatusResponseUsageOneStorageLimitMin),
+  "used": zod.number().int().min(getBillingStatusResponseUsageOneStorageUsedMin),
+  "remaining": zod.number().int().min(getBillingStatusResponseUsageOneStorageRemainingMin)
+}),
+  "workStopped": zod.boolean()
+}),zod.null()])
+})
+
+
+/**
+ * Requires pilot admission. Price, customer, ownership, and return destinations are derived by the server.
+ * @summary Create an allowlisted Stripe-hosted subscription checkout
+ */
+export const CreateBillingCheckoutBody = zod.object({
+  "plan": zod.enum(['monthly', 'yearly']),
+  "idempotencyKey": zod.string().uuid()
+})
+
+export const CreateBillingCheckoutResponse = zod.object({
+  "url": zod.string().url(),
+  "expiresAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * Remains available to an authenticated billing customer without pilot admission or active membership.
+ * @summary Create an owner-scoped Stripe-hosted customer portal
+ */
+export const CreateBillingPortalBody = zod.object({
+
+})
+
+export const CreateBillingPortalResponse = zod.object({
+  "url": zod.string().url(),
+  "expiresAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * The server validates Stripe-Signature against the unmodified bounded request body. This is not a browser endpoint.
+ * @summary Verify and durably process a Stripe webhook
+ */
+export const ReceiveBillingWebhookBody = zod.record(zod.string(), zod.unknown()).describe('Provider event whose exact raw bytes are verified before parsing.')
+
+export const ReceiveBillingWebhookResponse = zod.object({
+  "received": zod.literal(true)
+})
+
+
 export const LoginQueryParams = zod.object({
   "returnTo": zod.coerce.string().optional()
 })
@@ -55,6 +194,7 @@ export const GetImportConfigResponse = zod.object({
   "appImportLimit": zod.number().int(),
   "ownerSearchLimit": zod.number().int(),
   "appSearchLimit": zod.number().int(),
+  "quotaMode": zod.enum(['lifetime', 'monthly']).describe('Whether reported owner import\/search limits are pilot lifetime counters or commercial monthly allowances.'),
   "workerAvailable": zod.boolean()
 })
 
@@ -83,7 +223,8 @@ export const GetCurrentImportResponse = zod.union([zod.object({
   "searchesUsed": zod.number().int(),
   "searchLimit": zod.number().int(),
   "importsUsed": zod.number().int(),
-  "importLimit": zod.number().int()
+  "importLimit": zod.number().int(),
+  "quotaMode": zod.enum(['lifetime', 'monthly']).describe('Semantics of the reported import and search counters.')
 }),zod.null()])
 
 
@@ -123,7 +264,8 @@ export const CreateImportResponse = zod.object({
   "searchesUsed": zod.number().int(),
   "searchLimit": zod.number().int(),
   "importsUsed": zod.number().int(),
-  "importLimit": zod.number().int()
+  "importLimit": zod.number().int(),
+  "quotaMode": zod.enum(['lifetime', 'monthly']).describe('Semantics of the reported import and search counters.')
 })
 
 
@@ -155,7 +297,8 @@ export const GetImportResponse = zod.object({
   "searchesUsed": zod.number().int(),
   "searchLimit": zod.number().int(),
   "importsUsed": zod.number().int(),
-  "importLimit": zod.number().int()
+  "importLimit": zod.number().int(),
+  "quotaMode": zod.enum(['lifetime', 'monthly']).describe('Semantics of the reported import and search counters.')
 })
 
 
@@ -200,7 +343,8 @@ export const ReserveImportUploadResponse = zod.object({
   "searchesUsed": zod.number().int(),
   "searchLimit": zod.number().int(),
   "importsUsed": zod.number().int(),
-  "importLimit": zod.number().int()
+  "importLimit": zod.number().int(),
+  "quotaMode": zod.enum(['lifetime', 'monthly']).describe('Semantics of the reported import and search counters.')
 }),
   "uploadURL": zod.string(),
   "method": zod.enum(['PUT', 'POST']),
@@ -244,7 +388,8 @@ export const CompleteImportUploadResponse = zod.object({
   "searchesUsed": zod.number().int(),
   "searchLimit": zod.number().int(),
   "importsUsed": zod.number().int(),
-  "importLimit": zod.number().int()
+  "importLimit": zod.number().int(),
+  "quotaMode": zod.enum(['lifetime', 'monthly']).describe('Semantics of the reported import and search counters.')
 })
 
 
@@ -280,7 +425,8 @@ export const CancelImportResponse = zod.object({
   "searchesUsed": zod.number().int(),
   "searchLimit": zod.number().int(),
   "importsUsed": zod.number().int(),
-  "importLimit": zod.number().int()
+  "importLimit": zod.number().int(),
+  "quotaMode": zod.enum(['lifetime', 'monthly']).describe('Semantics of the reported import and search counters.')
 })
 
 
@@ -316,7 +462,8 @@ export const AuthorizeImportPlaybackResponse = zod.object({
   "searchesUsed": zod.number().int(),
   "searchLimit": zod.number().int(),
   "importsUsed": zod.number().int(),
-  "importLimit": zod.number().int()
+  "importLimit": zod.number().int(),
+  "quotaMode": zod.enum(['lifetime', 'monthly']).describe('Semantics of the reported import and search counters.')
 })
 
 
