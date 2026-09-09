@@ -10,6 +10,7 @@ from sceneit.proof import ProofError, SceneQuery, alignment_evidence, normalize_
 from sceneit.worker import publish_source, run_step
 from sceneit.storage import parse_object_path, safe_content_range
 from sceneit.server import app
+from copy import deepcopy
 
 
 class SearchBoundaryTests(unittest.TestCase):
@@ -70,18 +71,6 @@ class SearchBoundaryTests(unittest.TestCase):
     def test_empty_provider_results_remain_empty(self):
         self.assertEqual(normalize_matches({"data": []}, self.proof, "search"), ([], False))
 
-    def test_alignment_status_requires_recorded_playback_observation(self):
-        self.assertEqual(alignment_evidence({})[:2], ("unverified", "unverified"))
-        self.assertEqual(
-            alignment_evidence({
-                "alignmentObservation": {
-                    "status": "verified",
-                    "sampleCount": 4,
-                }
-            })[:2],
-            ("verified", "passed"),
-        )
-
     def test_ambiguous_upload_or_index_is_not_submitted_again(self):
         for state, asset_id in (("uploading", None), ("indexing", "uploaded-file")):
             proof = {
@@ -99,6 +88,112 @@ class SearchBoundaryTests(unittest.TestCase):
     def test_source_publication_requires_explicit_permission(self):
         with self.assertRaises(RuntimeError):
             publish_source(False, "public-app-viewers")
+
+class AlignmentEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.proof = {
+            "id": "test-proof", "title": "Test proof",
+            "source_sha256": "a" * 64, "youtube_id": "vLqagjJAvU8",
+            "state": "ready", "message": "Ready", "asset_id": "uploaded-file",
+            "provider_duration": 100, "searches_used": 0, "search_limit": 50,
+            "updated_at": datetime(2026, 9, 9, tzinfo=timezone.utc),
+            "media": {
+                "duration": 100, "width": 1280, "height": 720,
+                "size": 1000, "hasAudio": True,
+                "alignmentObservation": {
+                    "status": "verified", "sampleCount": 4,
+                    "sourceSha256": "a" * 64, "youtubeVideoId": "vLqagjJAvU8",
+                },
+            },
+        }
+
+    def evidence(self):
+        return alignment_evidence(
+            self.proof["media"], source_sha256=self.proof.get("source_sha256"),
+            youtube_id=self.proof.get("youtube_id"),
+        )
+
+    def test_alignment_requires_a_recorded_observation(self):
+        media = self.proof["media"]
+        del media["alignmentObservation"]
+        self.assertEqual(self.evidence()[:2], ("unverified", "unverified"))
+        for observation in (None, {}, [], "verified", {"status": "verified"}):
+            with self.subTest(observation=observation):
+                media["alignmentObservation"] = observation
+                self.assertEqual(self.evidence()[:2], ("unverified", "unverified"))
+
+    def test_matching_identities_preserve_the_recorded_result(self):
+        for status, check_status in (("verified", "passed"), ("mismatch", "failed")):
+            with self.subTest(status=status):
+                self.proof["media"]["alignmentObservation"]["status"] = status
+                self.assertEqual(self.evidence()[:2], (status, check_status))
+
+    def test_replacing_either_video_invalidates_the_observation(self):
+        original = deepcopy(self.proof)
+        for status in ("verified", "mismatch"):
+            for field, replacement in (
+                ("source_sha256", "b" * 64),
+                ("youtube_id", "dQw4w9WgXcQ"),
+            ):
+                with self.subTest(status=status, field=field):
+                    self.proof = deepcopy(original)
+                    observation = self.proof["media"]["alignmentObservation"]
+                    observation["status"] = status
+                    saved_observation = deepcopy(observation)
+                    self.proof[field] = replacement
+                    self.assertEqual(self.evidence()[:2], ("unverified", "unverified"))
+                    self.assertEqual(observation, saved_observation)
+
+    def test_missing_or_empty_identities_never_match(self):
+        original = deepcopy(self.proof)
+        for status in ("verified", "mismatch"):
+            for current_field, recorded_field in (
+                ("source_sha256", "sourceSha256"),
+                ("youtube_id", "youtubeVideoId"),
+            ):
+                for missing_from in ("current", "recorded", "both"):
+                    for value in (None, "", "   ", False, 0, "absent"):
+                        with self.subTest(
+                            status=status, field=current_field,
+                            missing_from=missing_from, value=value,
+                        ):
+                            self.proof = deepcopy(original)
+                            observation = self.proof["media"]["alignmentObservation"]
+                            observation["status"] = status
+                            targets = []
+                            if missing_from in ("current", "both"):
+                                targets.append((self.proof, current_field))
+                            if missing_from in ("recorded", "both"):
+                                targets.append((observation, recorded_field))
+                            for target, key in targets:
+                                if value == "absent":
+                                    del target[key]
+                                else:
+                                    target[key] = value
+                            self.assertEqual(self.evidence()[:2], ("unverified", "unverified"))
+
+    def test_public_proof_drops_verified_badge_for_either_replacement(self):
+        original = deepcopy(self.proof)
+        app.config["TESTING"] = True
+        client = app.test_client()
+        for changes in (
+            {}, {"source_sha256": "b" * 64}, {"youtube_id": "dQw4w9WgXcQ"},
+            {"source_sha256": None}, {"youtube_id": None},
+        ):
+            with self.subTest(changes=changes):
+                proof = deepcopy(original)
+                proof.update(changes)
+                connection = Mock()
+                connection.execute.return_value.fetchone.return_value = {"n": 0}
+                with patch("sceneit.proof.get_proof", return_value=proof), \
+                        patch("sceneit.proof.connection") as connect:
+                    connect.return_value.__enter__.return_value = connection
+                    response = client.get("/api/proof")
+                self.assertEqual(response.status_code, 200)
+                result = response.get_json()
+                alignment = next(check for check in result["checks"] if check["id"] == "alignment")
+                self.assertEqual(result["timelineStatus"], "unverified" if changes else "verified")
+                self.assertEqual(alignment["status"], "unverified" if changes else "passed")
 
 
 class ProofReportRouteTests(unittest.TestCase):

@@ -33,10 +33,23 @@ class ProofError(Exception):
         self.code, self.message, self.status = code, message, status
 
 
-def alignment_evidence(media):
-    """Present only an operator-recorded cross-edit playback observation."""
-    observation = media.get("alignmentObservation", {})
+def alignment_evidence(media, *, source_sha256, youtube_id):
+    """Present an operator-recorded observation only for the current video pair."""
+    observation = media.get("alignmentObservation")
+    if not isinstance(observation, dict):
+        observation = {}
     status = observation.get("status")
+    identities_match = (
+        isinstance(source_sha256, str) and bool(source_sha256.strip())
+        and isinstance(youtube_id, str) and bool(youtube_id.strip())
+        and observation.get("sourceSha256") == source_sha256
+        and observation.get("youtubeVideoId") == youtube_id
+    )
+    if status in ("verified", "mismatch") and not identities_match:
+        return "unverified", "unverified", (
+            "The saved playback observation does not identify the current source file and YouTube video. "
+            "Compare paired playback again to verify this video pair."
+        )
     if status == "verified":
         sample_count = observation.get("sampleCount")
         count = f"{sample_count} representative saved scenes" if sample_count else "Representative saved scenes"
@@ -94,7 +107,9 @@ def public_proof():
     embed_status = media.get("playbackObservation", {}).get("status")
     embed_blocked = embed_status == "blocked"
     embed_played = embed_status == "played"
-    timeline_status, alignment_status, alignment_detail = alignment_evidence(media)
+    timeline_status, alignment_status, alignment_detail = alignment_evidence(
+        media, source_sha256=row.get("source_sha256"), youtube_id=row.get("youtube_id"),
+    )
     failed = state in ("failed", "needs_review")
     checks = [
         {"id": "source", "label": "Original file validated", "status": "passed",
