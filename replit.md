@@ -33,6 +33,7 @@ or cross-video search product.
 - See `artifacts/api-server/docs/email-trial-operations.md` for explicit Firebase configuration, additive migration, lifetime trial accounting, bounded session revalidation and controlled rollout. Implementation/fixtures do not authorize public activation or live email/video work.
 - See `artifacts/api-server/docs/pilot-operations.md` for admission/proxy settings, release approval, uncertain-search reconciliation, backup/restore, and rollback/forward-repair.
 - See `artifacts/api-server/docs/billing-operations.md` for disabled-by-default billing configuration, payment policy, usage windows, operator stops, reconciliation, and separately approved activation.
+- Billing is an operator-requested disabled placeholder, not a blocker for unrelated development. Do not prompt for Stripe setup until payment work is explicitly resumed; hosted verification is still required before charging. See `artifacts/api-server/docs/billing-sandbox-verification.md`.
 - Fixture and development-upgrade evidence is recorded in `artifacts/api-server/docs/pilot-verification.md`; it is not live provider or real-phone playback certification.
 - Development DDL lives in `artifacts/api-server/sceneit/schema.sql`. Do not run the unused Drizzle schema push against these Python-owned tables. Do not apply schema changes on application startup or in a production build.
 

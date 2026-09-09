@@ -146,7 +146,15 @@ Shared HTTP infrastructure may additionally emit `database_unavailable`,
    `SCENEIT_BILLING_LIVE_APPROVED=true`, restart, and verify readiness and
    redacted diagnostics without creating a real charge as a health check.
 
-No real credential or Price ID is supplied by this repository.
+No real credential is supplied by this repository. Runtime Price IDs require
+explicit configuration; fixture identifiers are not provider resources.
+
+For the approved test resources and subsequent operator-requested pause, see
+[the sandbox preparation record](billing-sandbox-verification.md). That record
+is not hosted-payment certification; its test Price IDs do not enable billing.
+The operator has chosen to leave billing as a disabled placeholder so unrelated
+development can continue. Do not request Stripe setup again until the operator
+resumes payment work, and do not bypass verification before commercial activation.
 
 ## Operator stop and reservation release
 
