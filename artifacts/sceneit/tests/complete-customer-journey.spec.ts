@@ -387,6 +387,10 @@ test('repeatable complete private customer journey uses only safe synthetic fixt
   await page.getByRole('button', { name: 'Sign in to continue' }).click();
   await expect(page).toHaveURL(/\/auth\?returnTo=%2F/);
   await expect(page.getByRole('button', { name: 'Create account' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Create account' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() =>
+    sessionStorage.getItem('pendingImportLink'))).toBe('https://www.youtube.com/watch?v=fixtureJourney');
   await snap(page, testInfo, '01-visible-signup');
 
   await page.getByLabel('Email').fill('journey@example.test');
@@ -400,17 +404,15 @@ test('repeatable complete private customer journey uses only safe synthetic fixt
   await page.goto('/auth/action?mode=verifyEmail&oobCode=journey-valid');
   await expect(page.getByTestId('status-email-verified')).toContainText(/verified/i);
   await page.getByRole('button', { name: 'Sign in to continue' }).click();
-  await expect(page).toHaveURL('/auth?mode=signin');
+  await expect(page).toHaveURL('/auth?mode=signin&returnTo=%2F');
   await page.getByLabel('Email').fill('journey@example.test');
   await page.getByLabel('Password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL('/');
-  await expect(page.getByRole('button', { name: 'Continue to upload' })).toBeDisabled();
+  await expect(page.getByLabel('Video URL')).toHaveValue('https://www.youtube.com/watch?v=fixtureJourney');
+  await expect(page.getByLabel('I confirm I have the right to process this video.')).not.toBeChecked();
+  await expect(page.getByRole('button', { name: 'Start processing' })).toBeDisabled();
   expect(fixture.counts()).toEqual({ completeCalls: 0, transfers: 0, searches: 0, creations: 0 });
-  // PRODUCT-INTENT-004 records the lost intent. Re-enter it to continue the
-  // remaining independent journey checks without treating the defect as a pass.
-  await page.getByRole('button', { name: 'Paste a Link' }).click();
-  await page.getByLabel('Video URL').fill('https://www.youtube.com/watch?v=fixtureJourney');
 
   await page.getByLabel('I confirm I have the right to process this video.').click();
   await page.getByLabel('Allow owner-only source playback').click();
@@ -512,25 +514,89 @@ test('repeatable complete private customer journey uses only safe synthetic fixt
   expect(fixture.unhandled).toEqual([]);
 });
 
-test('PRODUCT-INTENT-004 verification and fresh sign-in preserve pending entry intent', async ({ page }, testInfo) => {
+test('PRODUCT-INTENT-004 verification and fresh sign-in restore pending link without consent or processing', async ({ page }) => {
+  const fixture = await journeyHarness(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Paste a Link' }).click();
+  await page.getByLabel('Video URL').fill('https://www.youtube.com/watch?v=fixtureJourney');
+  await page.getByLabel('I confirm I have the right to process this video.').click();
+  await page.getByLabel('Allow owner-only source playback').click();
+  await page.getByRole('button', { name: 'Sign in to continue' }).click();
+  await expect.poll(() => page.evaluate(() =>
+    sessionStorage.getItem('pendingImportLink'))).toBe('https://www.youtube.com/watch?v=fixtureJourney');
+  await page.reload();
+  await expect(page).toHaveURL(/\/auth\?returnTo=%2F/);
+  await expect.poll(() => page.evaluate(() =>
+    sessionStorage.getItem('pendingImportLink'))).toBe('https://www.youtube.com/watch?v=fixtureJourney');
+  await page.goto('/auth/action?mode=verifyEmail&oobCode=journey-valid');
+  await expect(page.getByTestId('status-email-verified')).toBeVisible();
+  await page.getByRole('button', { name: 'Sign in to continue' }).click();
+  await expect(page).toHaveURL('/auth?mode=signin&returnTo=%2F');
+  await page.getByLabel('Email').fill('journey@example.test');
+  await page.getByLabel('Password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL('/');
+  await expect(page.getByLabel('Video URL')).toHaveValue('https://www.youtube.com/watch?v=fixtureJourney');
+  await expect(page.getByLabel('I confirm I have the right to process this video.')).not.toBeChecked();
+  await expect(page.getByLabel('Allow owner-only source playback')).not.toBeChecked();
+  await expect(page.getByRole('button', { name: 'Start processing' })).toBeDisabled();
+  await expect.poll(() => page.evaluate(() =>
+    sessionStorage.getItem('pendingImportLink:anonymous'))).toBeNull();
+  expect(fixture.counts().creations).toBe(0);
+  expect(fixture.requests.some(request =>
+    request.method() !== 'GET'
+    && /^\/api\/(imports|proof)/.test(new URL(request.url()).pathname),
+  )).toBe(false);
+  expect(fixture.unhandled).toEqual([]);
+});
+
+test('verification recovery in a second tab preserves only the original anonymous draft', async ({ page }) => {
   const fixture = await journeyHarness(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Paste a Link' }).click();
   await page.getByLabel('Video URL').fill('https://www.youtube.com/watch?v=fixtureJourney');
   await page.getByLabel('I confirm I have the right to process this video.').click();
   await page.getByRole('button', { name: 'Sign in to continue' }).click();
-  await page.goto('/auth/action?mode=verifyEmail&oobCode=journey-valid');
-  await expect(page.getByTestId('status-email-verified')).toBeVisible();
-  await page.getByRole('button', { name: 'Sign in to continue' }).click();
-  await expect(page).toHaveURL('/auth?mode=signin');
+  await page.getByLabel('Email').fill('journey@example.test');
+  await page.getByLabel('Password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByTestId('status-verification')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => ({
+    link: sessionStorage.getItem('pendingImportLink'),
+    marker: sessionStorage.getItem('pendingImportLink:anonymous'),
+  }))).toEqual({
+    link: 'https://www.youtube.com/watch?v=fixtureJourney',
+    marker: '1',
+  });
+
+  const actionPage = await page.context().newPage();
+  await actionPage.goto('/auth/action?mode=verifyEmail&oobCode=journey-valid');
+  await expect(actionPage.getByTestId('status-email-verified')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => ({
+    link: sessionStorage.getItem('pendingImportLink'),
+    marker: sessionStorage.getItem('pendingImportLink:anonymous'),
+  }))).toEqual({
+    link: 'https://www.youtube.com/watch?v=fixtureJourney',
+    marker: '1',
+  });
+  await actionPage.close();
+
+  await page.getByRole('button', { name: "I've verified — sign in again" }).click();
   await page.getByLabel('Email').fill('journey@example.test');
   await page.getByLabel('Password').fill('correct horse battery staple');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL('/');
-  await page.screenshot({ path: testInfo.outputPath('PRODUCT-INTENT-004.png'), fullPage: true });
-  expect(fixture.counts().creations).toBe(0);
-  test.fail(true, 'PRODUCT-INTENT-004: verification/sign-in loses the pending source link');
   await expect(page.getByLabel('Video URL')).toHaveValue('https://www.youtube.com/watch?v=fixtureJourney');
+  await expect(page.getByLabel('I confirm I have the right to process this video.')).not.toBeChecked();
+  await expect(page.getByRole('button', { name: 'Start processing' })).toBeDisabled();
+  await expect.poll(() => page.evaluate(() =>
+    sessionStorage.getItem('pendingImportLink:anonymous'))).toBeNull();
+  expect(fixture.counts().creations).toBe(0);
+  expect(fixture.requests.some(request =>
+    request.method() !== 'GET'
+    && /^\/api\/(imports|proof)/.test(new URL(request.url()).pathname),
+  )).toBe(false);
+  expect(fixture.unhandled).toEqual([]);
 });
 
 test('worker outage blocks reservation and unknown transports fail closed', async ({ page }) => {

@@ -3,7 +3,9 @@ import { useLocation } from 'wouter';
 import {
   announceAuthRefresh,
   clearPrivateClientState,
+  closeClientAuthSession,
   getFirebaseClientAuth,
+  safeReturnTo,
   setSignoutUnconfirmed,
   useAuth,
 } from '@workspace/replit-auth-web';
@@ -30,6 +32,7 @@ function captureActionParameters() {
   return {
     mode: parameters.get('mode'),
     oobCode: parameters.get('oobCode'),
+    returnTo: safeReturnTo(parameters.get('returnTo'), '/'),
   };
 }
 
@@ -46,7 +49,9 @@ export default function AuthActionPage() {
   const [expired, setExpired] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const { mode, oobCode } = parameters.current;
+  const { mode, oobCode, returnTo } = parameters.current;
+  const authDestination = (authMode: 'signin' | 'reset') =>
+    `/auth?mode=${authMode}&returnTo=${encodeURIComponent(returnTo)}`;
 
   useEffect(() => {
     // Remove one-time credentials before any network request, reload, copy, or
@@ -85,7 +90,7 @@ export default function AuthActionPage() {
           // Verification may happen in a new tab where in-memory provider auth
           // is intentionally empty. A fresh explicit sign-in creates app access.
           setSignoutUnconfirmed(true);
-          clearPrivateClientState(queryClient);
+          clearPrivateClientState(queryClient, { preserveAnonymousImportLink: true });
           try {
             await signOut(firebaseAuth);
           } catch {
@@ -104,8 +109,9 @@ export default function AuthActionPage() {
             }
           }
           if (sessionClosed) {
+            await closeClientAuthSession(queryClient);
             setSignoutUnconfirmed(false);
-            announceAuthRefresh('signout');
+            announceAuthRefresh('recovery');
           }
           setStatus('success');
         } else if (mode === 'resetPassword') {
@@ -149,7 +155,7 @@ export default function AuthActionPage() {
   const clearAccessAfterReset = async () => {
     const config = auth.capabilities.firebaseConfig;
     setSignoutUnconfirmed(true);
-    clearPrivateClientState(queryClient);
+    clearPrivateClientState(queryClient, { preserveAnonymousImportLink: true });
     if (config) {
       try {
         await signOut(getFirebaseClientAuth(config));
@@ -172,8 +178,9 @@ export default function AuthActionPage() {
       }
     }
     if (sessionClosed) {
+      await closeClientAuthSession(queryClient);
       setSignoutUnconfirmed(false);
-      announceAuthRefresh('signout');
+      announceAuthRefresh('recovery');
     }
   };
 
@@ -219,7 +226,7 @@ export default function AuthActionPage() {
               <CardDescription data-testid="status-email-verified">Your address is verified. Sign in again to create a fresh secure session.</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button data-testid="button-signin-after-action" className="w-full" onClick={() => setLocation('/auth?mode=signin', { replace: true })}>
+              <Button data-testid="button-signin-after-action" className="w-full" onClick={() => setLocation(authDestination('signin'), { replace: true })}>
                 Sign in to continue<ArrowRight className="ml-2 size-4" />
               </Button>
             </CardContent>
@@ -233,7 +240,7 @@ export default function AuthActionPage() {
               <CardTitle role="heading" aria-level={1}>Password reset complete</CardTitle>
               <CardDescription data-testid="status-password-reset">Provider and app access were cleared. Sign in explicitly with your new password.</CardDescription>
             </CardHeader>
-            <CardContent><Button data-testid="button-signin-after-reset" className="w-full" onClick={() => setLocation('/auth?mode=signin', { replace: true })}>Go to sign in</Button></CardContent>
+            <CardContent><Button data-testid="button-signin-after-reset" className="w-full" onClick={() => setLocation(authDestination('signin'), { replace: true })}>Go to sign in</Button></CardContent>
           </>
         )}
 
@@ -266,8 +273,8 @@ export default function AuthActionPage() {
               <CardDescription data-testid="status-action-error">{errorMessage}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button data-testid="button-recover-action" className="w-full" onClick={() => setLocation('/auth', { replace: true })}>
-                {mode === 'verifyEmail' ? 'Sign in to resend verification' : 'Request a new reset link'}
+              <Button data-testid="button-recover-action" className="w-full" onClick={() => setLocation(authDestination(mode === 'resetPassword' ? 'reset' : 'signin'), { replace: true })}>
+                {mode === 'resetPassword' ? 'Request a new reset link' : mode === 'verifyEmail' ? 'Sign in to resend verification' : 'Go to sign in'}
               </Button>
               {auth.capabilities.replit && <Button data-testid="button-replit-login" variant="outline" className="w-full" onClick={auth.login}>Continue with Replit</Button>}
             </CardContent>

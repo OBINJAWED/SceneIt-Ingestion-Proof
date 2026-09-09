@@ -86,7 +86,7 @@ export default function AuthPage() {
       },
     );
     await queryClient.cancelQueries({ queryKey: ['/api/auth/session'] });
-    clearPrivateClientState(queryClient);
+    clearPrivateClientState(queryClient, { preserveAnonymousImportLink: true });
     queryClient.setQueryData(['/api/auth/session'], nextState);
     setSignoutUnconfirmed(false);
     announceAuthRefresh();

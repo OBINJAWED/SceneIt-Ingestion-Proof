@@ -117,12 +117,13 @@ async function interceptedApp(page: Page, initial: SessionOptions = {}) {
       }
       if (url.pathname.endsWith('/accounts:signInWithPassword')) {
         const email = (request.postDataJSON() as { email: string }).email;
+        const verified = email !== 'waiting@example.test';
         return reply(route, {
           kind: 'identitytoolkit#VerifyPasswordResponse',
-          localId: 'fixture-verified',
+          localId: verified ? 'fixture-verified' : 'fixture-unverified',
           email,
           registered: true,
-          idToken: token(email, true),
+          idToken: token(email, verified),
           refreshToken: 'fixture-refresh-token',
           expiresIn: '3600',
         });
@@ -274,6 +275,9 @@ async function interceptedApp(page: Page, initial: SessionOptions = {}) {
         importLimit: current.importLimit ?? 3,
         budgetReserved: true,
       });
+    }
+    if (url.pathname === '/api/imports/private-intent') {
+      return reply(route, { error: 'Not found', code: 'NOT_FOUND' }, 404);
     }
     if (url.pathname === '/api/imports/trial-import/searches' && request.method() === 'GET') {
       return reply(route, [{
@@ -458,23 +462,122 @@ test('verification and reset action links have success and expired-link recovery
   expect(fixture.unhandled).toEqual([]);
 });
 
-test('PRODUCT-AUTH-RECOVERY-001 expired password reset recovery opens reset mode', async ({ page }, testInfo) => {
-  await interceptedApp(page);
+test('PRODUCT-AUTH-RECOVERY-001 expired password reset recovery opens a usable reset form', async ({ page }) => {
+  const fixture = await interceptedApp(page);
   await page.goto('/auth/action?mode=resetPassword&oobCode=expired-fixture');
   await page.getByRole('button', { name: /Request a new reset link|Request a new link/i }).click();
-  await page.screenshot({ path: testInfo.outputPath('PRODUCT-AUTH-RECOVERY-001.png'), fullPage: true });
-  test.fail(true, 'PRODUCT-AUTH-RECOVERY-001: recovery currently opens the signup form');
-  await expect(page).toHaveURL(/\/auth\?mode=signin/);
-  await expect(page.getByRole('button', { name: 'Forgot password?' })).toBeVisible();
+  await expect(page).toHaveURL('/auth?mode=reset&returnTo=%2F');
+  await expect(page.getByRole('heading', { name: 'Reset password' })).toBeVisible();
+  await page.getByLabel('Email').fill('recover@example.test');
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  expect(fixture.requests.filter(request =>
+    new URL(request.url()).pathname.endsWith('/accounts:sendOobCode'),
+  )).toHaveLength(1);
+  expect(fixture.unhandled).toEqual([]);
 });
 
-test('PRODUCT-AUTH-RETURN-002 verification success preserves protected return intent', async ({ page }, testInfo) => {
-  await interceptedApp(page);
+test('PRODUCT-AUTH-RETURN-002 verification success preserves protected return intent through fresh sign-in', async ({ page }) => {
+  const fixture = await interceptedApp(page);
   await page.goto('/auth/action?mode=verifyEmail&oobCode=valid-fixture&returnTo=%2Fimports%2Fprivate-intent');
   await page.getByRole('button', { name: 'Sign in to continue' }).click();
-  await page.screenshot({ path: testInfo.outputPath('PRODUCT-AUTH-RETURN-002.png'), fullPage: true });
-  test.fail(true, 'PRODUCT-AUTH-RETURN-002: the action-link success route drops returnTo');
-  await expect(page).toHaveURL(/returnTo=%2Fimports%2Fprivate-intent/);
+  await expect(page).toHaveURL('/auth?mode=signin&returnTo=%2Fimports%2Fprivate-intent');
+  await page.getByLabel('Email').fill('verified@example.test');
+  await page.getByLabel('Password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL('/imports/private-intent');
+  expect(fixture.requests.some(request =>
+    request.method() !== 'GET'
+    && new URL(request.url()).pathname.startsWith('/api/imports'),
+  )).toBe(false);
+  expect(fixture.unhandled).toEqual([]);
+});
+
+test('unsafe action returnTo is rejected and one-time action credentials are scrubbed', async ({ page }) => {
+  const fixture = await interceptedApp(page);
+  await page.goto('/auth/action?mode=verifyEmail&oobCode=valid-fixture&returnTo=https%3A%2F%2Fevil.example%2Fsteal');
+  await expect(page).toHaveURL('/auth/action');
+  await expect(page.getByTestId('status-email-verified')).toBeVisible();
+  await page.getByRole('button', { name: 'Sign in to continue' }).click();
+  await expect(page).toHaveURL('/auth?mode=signin&returnTo=%2F');
+  expect(fixture.requests.some(request => request.url().startsWith('https://evil.example'))).toBe(false);
+  expect(fixture.unhandled).toEqual([]);
+});
+
+test('expired verification recovery supports fresh sign-in and resend without app access', async ({ page }) => {
+  const fixture = await interceptedApp(page);
+  await page.goto('/auth/action?mode=verifyEmail&oobCode=expired-fixture&returnTo=%2Fimports%2Fprivate-intent');
+  await expect(page.getByTestId('status-action-error')).toContainText(/expired.*request|request.*new/i);
+  await page.getByRole('button', { name: /Sign in to resend verification/i }).click();
+  await expect(page).toHaveURL('/auth?mode=signin&returnTo=%2Fimports%2Fprivate-intent');
+  await page.getByLabel('Email').fill('waiting@example.test');
+  await page.getByLabel('Password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByTestId('status-verification')).toContainText('waiting@example.test');
+  await page.getByRole('button', { name: 'Resend verification email' }).click();
+  await expect(page.getByText('A new verification link has been sent.').first()).toBeVisible();
+  expect(fixture.requests.filter(request =>
+    new URL(request.url()).pathname.endsWith('/accounts:sendOobCode'),
+  )).toHaveLength(1);
+  expect(fixture.requests.some(request =>
+    new URL(request.url()).pathname === '/api/auth/firebase/session',
+  )).toBe(false);
+  expect(fixture.unhandled).toEqual([]);
+});
+
+test('successful password reset preserves a safe destination through explicit sign-in', async ({ page }) => {
+  const fixture = await interceptedApp(page);
+  await page.goto('/auth/action?mode=resetPassword&oobCode=valid-fixture&returnTo=%2Fimports%2Fprivate-intent');
+  await expect(page).toHaveURL('/auth/action');
+  await page.getByTestId('input-new-password').fill('replacement password');
+  await page.getByTestId('button-reset-password').click();
+  await expect(page.getByTestId('status-password-reset')).toContainText(/sign in/i);
+  await page.getByTestId('button-signin-after-reset').click();
+  await expect(page).toHaveURL('/auth?mode=signin&returnTo=%2Fimports%2Fprivate-intent');
+  await page.getByLabel('Email').fill('recover@example.test');
+  await page.getByLabel('Password').fill('replacement password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL('/imports/private-intent');
+  expect(fixture.requests.some(request =>
+    request.method() !== 'GET'
+    && new URL(request.url()).pathname.startsWith('/api/imports'),
+  )).toBe(false);
+  expect(fixture.unhandled).toEqual([]);
+});
+
+test('verification and reset completion close an existing app session before fresh sign-in', async ({ page }) => {
+  const existingUser = { id: 'existing-owner', email: 'existing@example.test', emailVerified: true };
+  const fixture = await interceptedApp(page, { user: existingUser });
+
+  await page.goto('/auth/action?mode=verifyEmail&oobCode=valid-fixture');
+  await expect(page.getByTestId('status-email-verified')).toBeVisible();
+  await page.getByRole('button', { name: 'Sign in to continue' }).click();
+  await expect(page).toHaveURL('/auth?mode=signin&returnTo=%2F');
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+  await expect(page.getByLabel('Email')).toBeEnabled();
+  await expect(page.getByLabel('Password')).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled();
+
+  fixture.setSession({ user: existingUser });
+  await page.goto('/auth/action?mode=resetPassword&oobCode=valid-fixture');
+  await page.getByTestId('input-new-password').fill('replacement password');
+  await page.getByTestId('button-reset-password').click();
+  await expect(page.getByTestId('status-password-reset')).toBeVisible();
+  await page.getByTestId('button-signin-after-reset').click();
+  await expect(page).toHaveURL('/auth?mode=signin&returnTo=%2F');
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
+  await expect(page.getByLabel('Email')).toBeEnabled();
+  await expect(page.getByLabel('Password')).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled();
+
+  expect(fixture.requests.filter(request =>
+    new URL(request.url()).pathname === '/api/logout',
+  )).toHaveLength(2);
+  expect(fixture.requests.some(request =>
+    request.method() !== 'GET'
+    && new URL(request.url()).pathname.startsWith('/api/imports'),
+  )).toBe(false);
+  expect(fixture.unhandled).toEqual([]);
 });
 
 test('signup controls remain keyboard reachable in a narrow layout', async ({ page }) => {
@@ -609,6 +712,121 @@ test('logout and account switch clear private cache without implicit mutations',
     request.method() !== 'GET'
     && /^\/api\/(imports|proof)/.test(new URL(request.url()).pathname),
   )).toEqual([]);
+  expect(fixture.unhandled).toEqual([]);
+});
+
+test('explicit logout clears a draft originally marked as anonymous', async ({ page }) => {
+  const fixture = await interceptedApp(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Paste a Link' }).click();
+  await page.getByLabel('Video URL').fill('https://www.youtube.com/watch?v=anonymousDraft');
+  await expect.poll(() => page.evaluate(() => ({
+    link: sessionStorage.getItem('pendingImportLink'),
+    marker: sessionStorage.getItem('pendingImportLink:anonymous'),
+  }))).toEqual({
+    link: 'https://www.youtube.com/watch?v=anonymousDraft',
+    marker: '1',
+  });
+
+  await page.goto('/auth?mode=signin&returnTo=%2F');
+  await page.getByLabel('Email').fill('verified@example.test');
+  await page.getByLabel('Password').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL('/');
+  await expect(page.getByLabel('Video URL')).toHaveValue('https://www.youtube.com/watch?v=anonymousDraft');
+  await expect.poll(() => page.evaluate(() =>
+    sessionStorage.getItem('pendingImportLink:anonymous'))).toBeNull();
+  await page.getByRole('button', { name: /Log out|Sign out/ }).click();
+  await expect(page.getByRole('heading', { name: 'Find scenes in your videos.' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => ({
+    link: sessionStorage.getItem('pendingImportLink'),
+    marker: sessionStorage.getItem('pendingImportLink:anonymous'),
+  }))).toEqual({ link: null, marker: null });
+  expect(fixture.requests.some(request =>
+    request.method() !== 'GET'
+    && /^\/api\/(imports|proof)/.test(new URL(request.url()).pathname),
+  )).toBe(false);
+  expect(fixture.unhandled).toEqual([]);
+});
+
+test('account refresh clears an owner draft, consent, and private client cache', async ({ page }) => {
+  const fixture = await interceptedApp(page, {
+    user: { id: 'account-a', email: 'first@example.test', emailVerified: true },
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Paste a Link' }).click();
+  await page.getByLabel('Video URL').fill('https://vimeo.com/private-account-a-draft');
+  await page.getByLabel('I confirm I have the right to process this video.').click();
+  await page.evaluate(() => localStorage.setItem('sceneit:selected-result', 'private account A result'));
+  await expect.poll(() => page.evaluate(() => ({
+    link: sessionStorage.getItem('pendingImportLink'),
+    marker: sessionStorage.getItem('pendingImportLink:anonymous'),
+  }))).toEqual({
+    link: 'https://vimeo.com/private-account-a-draft',
+    marker: null,
+  });
+
+  fixture.setSession({
+    user: { id: 'account-b', email: 'second@example.test', emailVerified: true },
+  });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => ({
+    link: sessionStorage.getItem('pendingImportLink'),
+    marker: sessionStorage.getItem('pendingImportLink:anonymous'),
+    selectedResult: localStorage.getItem('sceneit:selected-result'),
+  }))).toEqual({ link: null, marker: null, selectedResult: null });
+  await expect(page.getByLabel('I confirm I have the right to process this video.')).not.toBeChecked();
+  await page.getByRole('button', { name: 'Paste a Link' }).click();
+  await expect(page.getByLabel('Video URL')).toHaveValue('');
+  await expect(page.getByText('private account A result')).toHaveCount(0);
+  expect(fixture.requests.some(request =>
+    request.method() !== 'GET'
+    && /^\/api\/(imports|proof)/.test(new URL(request.url()).pathname),
+  )).toBe(false);
+  expect(fixture.unhandled).toEqual([]);
+});
+
+test('identity failure hides the owner draft and guest recovery cannot restore it', async ({ page }) => {
+  let failSession = false;
+  const fixture = await interceptedApp(page, {
+    user: { id: 'account-a', email: 'first@example.test', emailVerified: true },
+  });
+  await page.route('**/api/auth/session', route =>
+    failSession
+      ? reply(route, { error: 'Synthetic identity failure', code: 'TEST_AUTH_FAILURE' }, 503)
+      : route.fallback());
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Paste a Link' }).click();
+  await page.getByLabel('Video URL').fill('https://vimeo.com/private-owner-draft');
+  await page.getByLabel('I confirm I have the right to process this video.').click();
+  await page.evaluate(() => localStorage.setItem('sceneit:selected-result', 'owner-only cached result'));
+  await expect.poll(() => page.evaluate(() => ({
+    link: sessionStorage.getItem('pendingImportLink'),
+    marker: sessionStorage.getItem('pendingImportLink:anonymous'),
+  }))).toEqual({ link: 'https://vimeo.com/private-owner-draft', marker: null });
+
+  failSession = true;
+  await page.reload();
+  await expect(page.getByText('Session check unavailable. Processing is closed until your account can be verified.')).toBeVisible();
+  await expect(page.getByLabel('Video URL')).toBeHidden();
+  await expect(page.getByLabel('Video URL')).toHaveValue('');
+
+  fixture.setSession({});
+  failSession = false;
+  await page.getByRole('button', { name: 'Retry session check' }).click();
+  await expect(page.getByRole('heading', { name: 'Find scenes in your videos.' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => ({
+    link: sessionStorage.getItem('pendingImportLink'),
+    marker: sessionStorage.getItem('pendingImportLink:anonymous'),
+    selectedResult: localStorage.getItem('sceneit:selected-result'),
+  }))).toEqual({ link: null, marker: null, selectedResult: null });
+  await expect(page.getByLabel('I confirm I have the right to process this video.')).not.toBeChecked();
+  await page.getByRole('button', { name: 'Paste a Link' }).click();
+  await expect(page.getByLabel('Video URL')).toHaveValue('');
+  expect(fixture.requests.some(request =>
+    request.method() !== 'GET'
+    && /^\/api\/(imports|proof)/.test(new URL(request.url()).pathname),
+  )).toBe(false);
   expect(fixture.unhandled).toEqual([]);
 });
 

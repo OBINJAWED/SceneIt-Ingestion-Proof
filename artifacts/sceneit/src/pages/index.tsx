@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
-import { useAuth } from '@workspace/replit-auth-web';
+import { clearPendingImportLink, readPendingImportLink, savePendingImportLink, useAuth } from '@workspace/replit-auth-web';
 import {
   useGetImportConfig,
   useGetCurrentImport,
@@ -23,7 +23,13 @@ import { canReadPrivate, privateAccessMessage } from '@/lib/private-access';
 
 export default function ImportsIndex() {
   const auth = useAuth();
-  return <ImportEntry key={`${auth.user?.id || 'anonymous'}:${auth.csrfToken || ''}`} />;
+  // Resolve identity (and clear the previous owner's drafts) before restoring
+  // entry text. Otherwise an initial anonymous render can relabel private state.
+  if (auth.isLoading) {
+    return <main className="min-h-screen grid place-items-center p-6 bg-background"><Loader2 aria-label="Loading sign-in status" className="animate-spin text-primary size-8" /></main>;
+  }
+  const identity = auth.error ? 'unavailable' : auth.signoutUnconfirmed ? 'signout-unconfirmed' : auth.user?.id || 'anonymous';
+  return <ImportEntry key={`${identity}:${auth.csrfToken || ''}`} />;
 }
 
 function ImportEntry() {
@@ -50,9 +56,14 @@ function ImportEntry() {
     mutation: { retry: false },
   });
 
-  const [activeTab, setActiveTab] = useState<'upload' | 'link'>('upload');
-  const [linkUrl, setLinkUrl] = useState('');
-  const [activeSourceKind, setActiveSourceKind] = useState<'youtube' | 'x' | 'tiktok' | 'vimeo' | null>(null);
+  const [pendingLink] = useState(() =>
+    auth.error || auth.signoutUnconfirmed ? '' : readPendingImportLink());
+  const [activeTab, setActiveTab] = useState<'upload' | 'link'>(pendingLink ? 'link' : 'upload');
+  const [linkUrl, setLinkUrl] = useState(pendingLink);
+  const [activeSourceKind, setActiveSourceKind] = useState<'youtube' | 'x' | 'tiktok' | 'vimeo' | null>(() => {
+    const restored = parseSourceKind(pendingLink).kind;
+    return restored === 'file' ? null : restored;
+  });
 
   const [rightsAuthorized, setRightsAuthorized] = useState(false);
   const [playbackAuthorized, setPlaybackAuthorized] = useState(false);
@@ -61,19 +72,10 @@ function ImportEntry() {
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
-    const pendingLink = sessionStorage.getItem('pendingImportLink');
-    if (pendingLink) {
-      setActiveTab('link');
-      setLinkUrl(pendingLink);
-      const restored = parseSourceKind(pendingLink).kind;
-      setActiveSourceKind(restored === 'file' ? null : restored);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (linkUrl && activeTab === 'link') sessionStorage.setItem('pendingImportLink', linkUrl);
-    else sessionStorage.removeItem('pendingImportLink');
-  }, [activeTab, linkUrl]);
+    // Do not grant an anonymous exemption while identity is uncertain.
+    if (auth.error || auth.signoutUnconfirmed) return;
+    savePendingImportLink(activeTab === 'link' ? linkUrl : '', !isAuthenticated);
+  }, [activeTab, linkUrl, isAuthenticated, auth.error, auth.signoutUnconfirmed]);
 
   const handleLinkChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -100,7 +102,7 @@ function ImportEntry() {
 
     if (!isAuthenticated) {
       if (activeTab === 'link' && linkUrl) {
-        sessionStorage.setItem('pendingImportLink', linkUrl);
+        savePendingImportLink(linkUrl, true);
       }
       setLocation('/auth?returnTo=%2F');
       return;
@@ -129,7 +131,7 @@ function ImportEntry() {
           }
         });
 
-        sessionStorage.removeItem('pendingImportLink');
+        clearPendingImportLink();
         queryClient.invalidateQueries({ queryKey: ['/api/imports/current'] });
         queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
         setLocation(`/imports/${res.id}`);

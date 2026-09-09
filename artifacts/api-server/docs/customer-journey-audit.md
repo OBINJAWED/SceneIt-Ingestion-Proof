@@ -6,7 +6,49 @@ This is a testing and findings report, not launch approval. No customer account,
 production database, real email, hosted payment, video-provider job, or managed
 import worker was used. Product behavior and access policies were not changed.
 
-## Bottom line
+## Recovery fix verification — 9 September 2026
+
+The three recovery defects from this audit are now fixed in the client:
+
+- **PRODUCT-AUTH-RECOVERY-001:** expired reset recovery opens the reset-request
+  form, not account creation. Expired verification opens sign-in for explicit
+  resend.
+- **PRODUCT-AUTH-RETURN-002:** verification and password-reset completion retain
+  sanitized local `returnTo` destinations through fresh sign-in. One-time action
+  parameters are still removed from the address bar.
+- **PRODUCT-INTENT-004:** the anonymous pending video link survives verification,
+  fresh sign-in, and reloads in its original tab. Restored entry text does not
+  restore analysis or playback consent and never starts processing.
+
+Those three regressions are ordinary assertions now, not expected failures.
+The connected walkthrough uses the restored link rather than manually re-entering
+it. Private queries and owner drafts still clear on account changes; explicit
+logout also clears anonymous drafts. Recovery closes cached access before
+releasing the local signout latch, and a failed initial identity check exposes
+retry controls without restoring an owner's draft.
+
+**Local evidence:** workspace typecheck and all 16 frontend behavior tests passed.
+The intercepted desktop/mobile-viewport pass had 32 passes and two failures in a
+new identity-error case. A focused check exposed an incorrect hidden-control
+assertion after the automatic-remount retry loop was fixed; the final two-case
+check passed. This is **34 distinct passing browser cases across the main pass
+and focused checks**, not a claim of one clean full-suite run. Coverage includes
+the three original regressions, existing-session recovery, second-tab
+verification with return to the original tab, logout/account switch, and separate
+Firebase/private versus Replit/pilot permissions. The web preview also rendered
+successfully.
+
+The browser transports remained intercepted, apart from the existing disposable
+synthetic-media upload sink in the connected walkthrough. No real email, provider
+activation, worker operation, rollout, or payment change was made. Actual email
+delivery remains unverified and separately owned. A newly opened independent tab
+or device does not acquire another tab's draft.
+
+The heading-semantics defect remains outside this fix and retains its expected
+failure. All original audit findings, screenshots, and historical results below
+are preserved as the pre-fix record.
+
+## Original audit — bottom line
 
 The safe local journey works from an authorized import through synthetic-media
 playback and returning to saved results. It does **not** establish that a real

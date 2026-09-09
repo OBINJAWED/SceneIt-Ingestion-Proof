@@ -3,9 +3,11 @@ import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-quer
 import { getAuthSession, logout as logoutSession, type AuthState } from '@workspace/api-client-react';
 import { signOut } from 'firebase/auth';
 import { existingFirebaseClientAuth, safeReturnTo } from './firebase-client';
+import { clearPendingImportLink } from './pending-import-link';
 
 const SESSION_QUERY_KEY = ['/api/auth/session'] as const;
 const AUTH_CHANNEL = 'sceneit:auth-refresh';
+const AUTH_TAB_ID = crypto.randomUUID();
 const SIGNOUT_LATCH_KEY = 'sceneit:signout-unconfirmed';
 const signoutLatchListeners = new Set<() => void>();
 let signoutLatchMemory: boolean | undefined;
@@ -51,12 +53,8 @@ const unavailableState = (reason = 'identity_unavailable'): AuthState => ({
   usage: null,
 });
 
-function clearBrowserPrivateState() {
-  try {
-    sessionStorage.removeItem('pendingImportLink');
-  } catch {
-    // Storage may be unavailable in hardened browser contexts.
-  }
+function clearBrowserPrivateState(preserveAnonymousImportLink: boolean) {
+  clearPendingImportLink(preserveAnonymousImportLink);
   try {
     for (let index = localStorage.length - 1; index >= 0; index -= 1) {
       const key = localStorage.key(index);
@@ -67,17 +65,33 @@ function clearBrowserPrivateState() {
   }
 }
 
-export function clearPrivateClientState(queryClient: QueryClient) {
+export function clearPrivateClientState(
+  queryClient: QueryClient,
+  { preserveAnonymousImportLink = false }: { preserveAnonymousImportLink?: boolean } = {},
+) {
   queryClient.removeQueries({
     predicate: (query) => query.queryKey[0] !== SESSION_QUERY_KEY[0],
   });
-  clearBrowserPrivateState();
+  clearBrowserPrivateState(preserveAnonymousImportLink);
 }
 
-export function announceAuthRefresh(kind: 'refresh' | 'signout' = 'refresh') {
+/** Publish a confirmed closed session before releasing the local access latch. */
+export async function closeClientAuthSession(queryClient: QueryClient) {
+  await queryClient.cancelQueries({ queryKey: SESSION_QUERY_KEY });
+  queryClient.setQueryData<AuthState>(SESSION_QUERY_KEY, (current) => ({
+    ...(current ?? unavailableState('authentication_required')),
+    csrfToken: null,
+    user: null,
+    pilotAdmitted: false,
+    privateAccess: { allowed: false, reason: 'authentication_required' },
+    usage: null,
+  }));
+}
+
+export function announceAuthRefresh(kind: 'refresh' | 'signout' | 'recovery' = 'refresh') {
   if (typeof BroadcastChannel === 'undefined') return;
   const channel = new BroadcastChannel(AUTH_CHANNEL);
-  channel.postMessage(kind);
+  channel.postMessage({ kind, source: AUTH_TAB_ID });
   channel.close();
 }
 
@@ -98,7 +112,7 @@ export function useAuth() {
       if (sessionIdentity(previous) !== sessionIdentity(next)) {
         // Invalidate the old owner before publishing the new session. Clearing
         // in a render effect can delete newly mounted child queries instead.
-        clearPrivateClientState(queryClient);
+        clearPrivateClientState(queryClient, { preserveAnonymousImportLink: true });
       }
       return next;
     },
@@ -108,6 +122,9 @@ export function useAuth() {
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
     retry: false,
+    // Mounting the error/recovery UI adds auth subscribers. Do not let those
+    // mounts restart a failed initial check and replace recovery with a spinner.
+    retryOnMount: false,
   });
 
   const signoutUnconfirmed = useSyncExternalStore(
@@ -129,21 +146,23 @@ export function useAuth() {
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return;
     const channel = new BroadcastChannel(AUTH_CHANNEL);
-    channel.onmessage = (event) => {
-      clearPrivateClientState(queryClient);
-      if (event.data === 'signout') {
+    channel.onmessage = async (event) => {
+      // A page can have several useAuth subscribers. Its own announcement must
+      // not reset the session it just exchanged or remount its restored form.
+      if (event.data?.source === AUTH_TAB_ID) return;
+      const kind = typeof event.data === 'string' ? event.data : event.data?.kind;
+      // Recovery closes access just like signout, but an anonymous onboarding
+      // draft in the original tab can still be used after explicit fresh login.
+      const closesSession = kind === 'signout' || kind === 'recovery';
+      clearPrivateClientState(queryClient, {
+        preserveAnonymousImportLink: kind === 'refresh' || kind === 'recovery',
+      });
+      if (closesSession) {
         const providerAuth = existingFirebaseClientAuth();
         if (providerAuth) void signOut(providerAuth).catch(() => undefined);
       }
-      queryClient.setQueryData<AuthState>(SESSION_QUERY_KEY, (current) => ({
-        ...(current ?? unavailableState('authentication_required')),
-        csrfToken: null,
-        user: null,
-        pilotAdmitted: false,
-        privateAccess: { allowed: false, reason: 'authentication_required' },
-        usage: null,
-      }));
-      if (event.data === 'signout') setSignoutUnconfirmed(false);
+      await closeClientAuthSession(queryClient);
+      if (closesSession) setSignoutUnconfirmed(false);
       void queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
     };
     return () => channel.close();
