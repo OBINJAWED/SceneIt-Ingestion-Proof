@@ -1,0 +1,924 @@
+SceneIt is a prototype web application that lets someone describe a moment in natural language—such as “a person walking through the rain”—and attempts to locate the matching timestamp inside an indexed YouTube video.
+
+The current system combines:
+
+Flask for the web server and JSON API
+Twelve Labs for semantic video search across visual and audio content
+YouTube IFrame API for browser playback
+Tailwind CSS and custom CSS for the interface
+A small local JSON mapping file connecting Twelve Labs video IDs to YouTube video IDs
+A command-line script that downloads YouTube videos and submits them to Twelve Labs for indexing
+A separate, experimental RunPod + Qwen vision model diagnostic that is not connected to the application
+The core MVP is implemented and the homepage is currently running. However, the project is still at prototype maturity. It lacks automated tests, durable storage, production observability, indexing administration, concurrency protection, robust error handling, and a genuinely reproducible sharing system.
+
+The most important architectural issue is that the documented/intended YouTube migration called for direct URL-based indexing without downloading videos, but the current indexing script still downloads the entire video using yt-dlp before uploading it to Twelve Labs.
+
+2. Product concept
+The intended user experience is:
+
+An administrator indexes one or more YouTube videos.
+Twelve Labs analyzes their visual and audio content.
+A user opens SceneIt and describes a moment.
+The backend submits the description to Twelve Labs.
+Twelve Labs returns a matching video ID and time range.
+SceneIt maps the Twelve Labs video ID back to the original YouTube video ID.
+The browser embeds that YouTube video at the matching timestamp.
+The selected segment automatically loops.
+This is a focused “moment finder,” not currently a general video library, video editor, recommendation engine, or conversational assistant.
+
+3. Current project structure
+The meaningful application files are:
+
+.
+├── main.py
+├── index_youtube.py
+├── setup_index.py
+├── ping_runpod.py
+├── pyproject.toml
+├── uv.lock
+├── .replit
+├── replit.md
+├── video_mapping.json
+├── maxresdefault.jpg
+├── templates/
+│   └── index.html
+├── static/
+├── attached_assets/
+│   ├── original project request
+│   └── YouTube migration request
+└── test_video.mp4             # Local/ignored, not part of normal runtime
+File responsibilities
+File	Purpose	Current status
+main.py	Flask server, homepage, and search endpoint	Active
+templates/index.html	Entire frontend UI and browser-side logic	Active
+index_youtube.py	Indexes a YouTube video and updates its mapping	Active, but does not match the intended direct-URL approach
+video_mapping.json	Maps Twelve Labs video IDs to YouTube IDs	Active
+setup_index.py	Original local-MP4 indexing utility	Deprecated
+ping_runpod.py	Standalone Qwen vision connectivity experiment	Experimental, not integrated
+maxresdefault.jpg	Image apparently added for RunPod testing	Currently unused
+replit.md	Project overview and setup instructions	Mostly accurate, with some omissions
+.replit	Runtime, workflow, port, and deployment configuration	Active
+pyproject.toml	Declared Python dependencies	Active but incomplete for experimental scripts
+attached_assets/*	Historical product prompts and migration requirements	Reference only
+4. Technologies used
+Backend
+Python 3.11+
+The project declares Python 3.11 or newer.
+
+Flask
+Flask provides:
+
+GET / for the homepage
+POST /search for natural-language scene search
+Jinja template rendering
+JSON request and response handling
+The application is deliberately small: all backend behavior is contained in main.py.
+
+Gunicorn
+The deployment configuration runs the Flask application through Gunicorn:
+
+gunicorn --bind=0.0.0.0:5000 --reuse-port main:app
+The development workflow instead runs:
+
+python main.py
+That means:
+
+Development uses Flask’s built-in development server.
+Replit autoscale deployment is intended to use Gunicorn.
+AI/video search
+Twelve Labs
+Twelve Labs is the actual AI engine behind the current product.
+
+It is used for:
+
+Creating or locating a video index
+Uploading videos
+Analyzing visual and audio information
+Running semantic natural-language searches
+Returning matching timestamps
+The index is configured with:
+
+Model: marengo2.7
+Modalities/options:
+visual
+audio
+The search request also explicitly asks for both visual and audio search.
+
+Video playback
+YouTube IFrame API
+The frontend dynamically loads:
+
+https://www.youtube.com/iframe_api
+The YouTube player:
+
+Starts near the returned match time
+Autoplays when possible
+Hides normal player controls
+Disables keyboard controls and fullscreen
+Attempts to keep the user inside the matching time range
+Automatically restarts playback if paused
+Frontend
+Server-rendered HTML
+There is no React, Vue, Angular, or frontend build system. Flask returns one HTML document containing:
+
+Markup
+CSS
+JavaScript
+UI state
+YouTube player logic
+Search request handling
+Tailwind CSS via CDN
+Tailwind is loaded directly from its public CDN. This is convenient for a prototype but not recommended for production. The browser itself currently emits a warning that the Tailwind CDN should not be used for production.
+
+Custom CSS
+The visual style is a black and neon-green terminal/hacker aesthetic:
+
+Black background
+Bright green borders and buttons
+Neon glow effects
+JetBrains Mono for terminal-like text
+Space Grotesk for general typography
+Animated loading bar
+Responsive 16:9 video player
+Google Fonts
+JetBrains Mono and Space Grotesk are imported from Google Fonts.
+
+Supporting tools
+yt-dlp
+The indexing script calls the yt-dlp executable to download YouTube videos.
+
+However, it is not declared as a project dependency in pyproject.toml. It currently appears to be present in the local environment, which makes the project less reproducible when migrated.
+
+FFmpeg
+FFmpeg is installed through Replit’s Nix configuration, presumably to support video downloading or format processing.
+
+OpenAI Python SDK
+ping_runpod.py uses the OpenAI Python client to communicate with RunPod’s OpenAI-compatible endpoint.
+
+The OpenAI package is not declared in pyproject.toml, even though it exists in the current local environment.
+
+5. Current runtime architecture
+Request flow
+Browser
+   |
+   | GET /
+   v
+Flask renders templates/index.html
+   |
+   | User enters a description
+   |
+   | POST /search
+   | { "query": "..." }
+   v
+Flask backend
+   |
+   | Twelve Labs semantic search
+   v
+Twelve Labs index
+   |
+   | Returns video_id, start, end, confidence/rank
+   v
+Flask reads video_mapping.json
+   |
+   | Maps Twelve Labs video ID to YouTube ID
+   v
+Browser receives result
+   |
+   | Creates YouTube iframe at returned timestamp
+   v
+YouTube playback with client-side looping
+Backend initialization
+At startup, main.py reads:
+
+TWELVE_LABS_API_KEY
+TWELVE_LABS_INDEX_ID
+If an API key is present, it creates the Twelve Labs client.
+
+A notable detail is that the client is created only once at module import time. If configuration changes while the server is running, the server must be restarted.
+
+Search endpoint
+The search endpoint expects:
+
+{
+  "query": "a natural language scene description"
+}
+It then calls Twelve Labs using the configured index and:
+
+search_options=["visual", "audio"]
+Only the first match is used.
+
+A successful result resembles:
+
+{
+  "success": true,
+  "start": 42.1,
+  "end": 48.7,
+  "confidence": 0.95,
+  "query": "the requested description",
+  "youtube_video_id": "..."
+}
+If no match is returned:
+
+{
+  "success": false,
+  "message": "No matches found for your query."
+}
+Confidence handling
+The application tries to normalize different Twelve Labs response formats:
+
+Numeric confidence is used directly.
+String values are converted:
+high → 0.95
+medium → 0.75
+low → 0.5
+Missing confidence is estimated from result rank.
+The rank-derived confidence is synthetic. It is useful for presentation but should not be treated as a calibrated probability.
+
+Because only the top result is used, the rank is usually likely to be 1, which can make the fallback confidence appear stronger than the underlying evidence supports.
+
+6. Video indexing pipeline
+Current indexing process
+The active indexing script is index_youtube.py.
+
+Its process is:
+
+Require TWELVE_LABS_API_KEY.
+List available Twelve Labs indexes.
+Find the first index named SceneIt_MVP.
+Create that index if it does not exist.
+Parse an 11-character YouTube ID from the supplied URL.
+Download the complete video using yt-dlp.
+Store it temporarily as youtube_download.mp4.
+Open the file and upload it to Twelve Labs.
+Poll the Twelve Labs task every five seconds.
+When indexing succeeds, get the Twelve Labs video ID.
+Save the association between:
+Twelve Labs video ID
+YouTube video ID
+Delete the temporary MP4.
+Print the index ID so it can be added to configuration.
+Example invocation:
+
+python index_youtube.py "https://www.youtube.com/watch?v=VIDEO_ID"
+Mapping format
+The mapping file conceptually contains:
+
+{
+  "twelve-labs-video-id": "youtube-video-id"
+}
+This mapping is essential because Twelve Labs search returns its own internal video ID, while the YouTube player needs the original YouTube ID.
+
+Important migration contradiction
+The historical YouTube migration requirement explicitly requested:
+
+Direct URL-based Twelve Labs indexing
+No local video download
+No yt-dlp
+No temporary MP4 file
+The current implementation does the opposite:
+
+YouTube URL
+    ↓
+yt-dlp
+    ↓
+temporary MP4
+    ↓
+Twelve Labs file upload
+Therefore, the YouTube migration is only partially complete.
+
+The user-facing playback was migrated to YouTube, but the ingestion side remains based on local downloading.
+
+Indexing risks
+The current indexing approach has several weaknesses:
+
+Uses one fixed temporary filename
+Concurrent indexing commands can overwrite each other
+No polling timeout
+No backoff strategy
+No interruption-safe cleanup
+No retries for transient provider failures
+No duplicate-video detection
+No idempotency
+No atomic mapping writes
+No mapping schema validation
+No administrative UI
+Index selection is based on name, which is ambiguous if duplicate indexes exist
+The index ID still has to be transferred manually into application configuration
+Full video downloads consume disk, time, bandwidth, and potentially create platform or content-policy concerns
+7. Frontend behavior
+Search experience
+The homepage contains:
+
+SceneIt branding
+“Moment Finder v1.0” label
+A natural-language text input
+A large “Find It” button
+Enter-key submission
+During search, it shows a simulated terminal-style animation with text such as:
+
+“Scanning video index”
+“Analyzing visual patterns”
+“Cross-referencing semantic data”
+“Locating timestamp”
+This animation does not reflect individual backend stages; it is purely a loading presentation.
+
+Search states
+The frontend supports:
+
+Initial search state
+Loading state
+Match state
+No-match state
+Error state
+Reset/search-again state
+Video player behavior
+After a match:
+
+The result start and end timestamps are saved in browser variables.
+The displayed confidence is converted to a percentage.
+A YouTube player is mounted.
+The player seeks to the start time.
+Playback begins.
+A 250-millisecond interval monitors playback.
+If the player reaches the end time, it seeks back to the start.
+If the user pauses, the code attempts to play again.
+This creates an approximate looping clip without creating a new video asset.
+
+Limitations of the player implementation
+Browser autoplay policies may prevent playback.
+Player errors are not handled.
+The YouTube API readiness poll has no timeout.
+The loop depends on frequent browser polling rather than a more explicit player-state design.
+Buffering can affect loop timing.
+Returned timestamps are not validated.
+The user is intentionally prevented from pausing normally.
+Hidden controls and disabled fullscreen may hurt accessibility.
+Reset logic can create duplicate yt-player element IDs after repeated searches.
+There is no cancellation when a second search supersedes the first.
+There is no loading timeout.
+8. Sharing behavior
+A share button is implemented using:
+
+Web Share API when available
+Clipboard API as fallback
+The shared text includes the user’s query.
+
+However, the shared URL is only the current homepage URL:
+
+window.location.href
+It does not contain:
+
+The query
+YouTube video ID
+Start timestamp
+End timestamp
+A result identifier
+Consequently, another person opening the shared link will only see the initial homepage. They will not see the actual found scene.
+
+So the sharing button exists, but reproducible scene sharing is not complete.
+
+There is also a bug in the clipboard error path: when copying fails, the app displays “Link copied!” anyway.
+
+9. Legacy local-video approach
+The original version used a local test_video.mp4.
+
+setup_index.py:
+
+Creates or finds the same Twelve Labs index
+Uploads test_video.mp4
+Copies the video to static/test_video.mp4
+Polls for indexing completion
+This reflects the first project architecture:
+
+Local MP4 → Twelve Labs index → local HTML5 playback
+The application later moved to:
+
+YouTube source → Twelve Labs index → YouTube iframe playback
+setup_index.py is documented as deprecated and is incompatible with the current YouTube mapping system because it never associates uploaded videos with YouTube IDs.
+
+It should not be carried into a clean rebuild unless local uploads are intentionally part of the new product.
+
+10. RunPod/Qwen experiment
+What it does
+ping_runpod.py is a standalone diagnostic for a hosted vision-language model.
+
+It:
+
+Reads RunPod credentials/configuration
+Creates an OpenAI-compatible client
+Uses a RunPod endpoint URL
+Targets Qwen/Qwen2.5-VL-72B-Instruct-AWQ
+Generates a tiny synthetic PNG in memory
+Encodes it as a base64 data URL
+Sends a multimodal Chat Completions request
+Asks the model to describe the action in the image
+Prints the model response
+What it does not do
+It is not connected to:
+
+Flask
+/search
+Twelve Labs
+YouTube indexing
+Timestamp retrieval
+The browser interface
+video_mapping.json
+The image it sends is currently only a 50×50 solid-color synthetic test image. That is suitable for verifying request-format compatibility, but not for evaluating scene understanding.
+
+The repository also includes maxresdefault.jpg, apparently intended as a more meaningful test image, but the script does not use it.
+
+Architectural significance
+RunPod/Qwen cannot directly replace Twelve Labs without substantial new infrastructure.
+
+Qwen currently takes an image and returns prose. SceneIt needs:
+
+Video ingestion
+Frame extraction
+Audio/transcript handling
+Temporal indexing
+Embedding generation
+Semantic retrieval
+Timestamp aggregation
+Result ranking
+Confidence scoring
+Persistent video metadata
+If RunPod is intended to become the main engine, the new project would need a complete custom video-analysis pipeline rather than a simple API substitution.
+
+The RunPod work should currently be considered an experiment, not an in-progress integrated feature.
+
+11. Configuration and deployment
+Replit development workflow
+The configured workflow runs:
+
+python main.py
+It waits for port 5000 and exposes the application in the Replit preview.
+
+I verified that:
+
+The workflow is currently running.
+Flask starts successfully.
+The homepage renders.
+The neon SceneIt search interface is visible.
+Deployment configuration
+Autoscale deployment is configured with Gunicorn.
+
+This is a reasonable deployment foundation for the small Flask application, but the application’s local JSON persistence is not appropriate for multiple autoscaled instances.
+
+Multiple instances may:
+
+Read different filesystem state
+Lose mapping changes after replacement
+Race during writes
+Fail to share newly indexed metadata
+Current browser diagnostics
+The rendered homepage produces:
+
+A Tailwind CDN production warning
+A 404 resource request, likely for an undeclared favicon or similar browser-requested asset
+Neither currently prevents the homepage from loading, but both should be cleaned up in a rebuild.
+
+12. Dependency state
+Declared dependencies are:
+
+Flask
+Gunicorn
+Twelve Labs SDK
+The dependency declaration is incomplete relative to the scripts in the repository.
+
+Missing or implicit dependencies include:
+
+yt-dlp
+OpenAI Python SDK
+FFmpeg is installed through Replit configuration rather than Python dependency management.
+
+For migration, all runtime and utility dependencies should be explicitly declared and version-controlled. Avoid depending on packages that merely happen to exist in the current environment.
+
+13. What has been accomplished
+Core product
+A working Flask application exists.
+A natural-language search endpoint exists.
+Twelve Labs visual and audio search is integrated.
+Search results are converted into a frontend-friendly response.
+Twelve Labs videos can be associated with YouTube videos.
+The browser can load and play the corresponding YouTube video.
+Matching timestamp ranges can be looped.
+Search, loading, success, failure, and reset states exist.
+Basic mobile responsiveness is present.
+A distinct product visual identity has been implemented.
+Development and production server commands are configured.
+YouTube migration
+The local HTML5 video player was replaced by YouTube IFrame playback.
+YouTube video ID extraction exists.
+Mapping from provider IDs to YouTube IDs exists.
+Re-indexing instructions exist.
+The frontend rejects results that have no YouTube mapping.
+Sharing
+Web Share API support exists.
+Clipboard fallback exists.
+Share copy includes the query text.
+Operational experiments
+RunPod’s OpenAI-compatible API was tested.
+Multimodal Qwen request formatting was explored.
+Base64 image transport was implemented.
+Client timeout behavior was added to the diagnostic.
+14. What appears to be in progress or incomplete
+There is no formal task tracker or explicit “in progress” branch, so this must be inferred from source history and repository state.
+
+1. YouTube indexing migration
+Status: partially complete
+
+Completed:
+
+YouTube playback
+YouTube ID extraction
+Twelve Labs-to-YouTube mapping
+Incomplete:
+
+Direct URL ingestion
+Removal of yt-dlp
+Removal of temporary MP4 handling
+Reproducible dependency declaration
+Safe multi-video ingestion
+This is the clearest unfinished feature.
+
+2. RunPod vision investigation
+Status: experimental spike
+
+Completed:
+
+Endpoint client setup
+Multimodal request
+Base64 image test
+Timeout configuration
+Incomplete:
+
+Meaningful test image wiring
+Application endpoint
+Video-frame extraction
+Temporal processing
+Search integration
+Dependency declaration
+Production error handling
+3. Shareable results
+Status: UI present, core functionality incomplete
+
+The button works as a generic share action, but the result cannot be reconstructed from the shared URL.
+
+4. Multi-video support
+Status: technically possible, not productized
+
+The mapping format can contain multiple videos, and Twelve Labs can search an index containing multiple videos. But there is no:
+
+Video library
+Administration interface
+Source metadata
+Duplicate management
+Delete/re-index flow
+Per-video filtering
+Index status dashboard
+5. Production hardening
+Status: largely not started
+
+The deployment command exists, but production-grade behavior does not.
+
+15. Testing and engineering maturity
+There are currently no:
+
+Unit tests
+Integration tests
+Browser tests
+End-to-end tests
+Linting configuration
+Type checking
+CI workflow
+API contract tests
+Mock provider tests
+Load tests
+Security tests
+Deployment smoke tests
+The only diagnostic-style script is the RunPod connectivity experiment, and it does not validate the actual Flask application.
+
+This means provider SDK upgrades or minor frontend changes could break the system without being detected until manual use.
+
+The project should be treated as a functional prototype, not a stable production system.
+
+16. Security and reliability considerations
+Error leakage
+The backend returns raw exception text to the browser:
+
+{"error": str(e)}
+Provider errors can expose internal operational details. Production code should log the full error server-side and return a safe public message.
+
+No abuse protection
+POST /search has no:
+
+Authentication
+Rate limiting
+Request quotas
+Maximum query length
+Per-IP restrictions
+Bot protection
+Provider-cost protection
+A public deployment could generate uncontrolled Twelve Labs usage.
+
+Weak request validation
+The code assumes the request body is JSON and that .get() is available. Malformed or missing JSON can cause an exception.
+
+There is also no validation of returned timestamps, confidence values, or video IDs.
+
+Local persistence
+video_mapping.json is:
+
+Read directly from disk
+Rewritten in full
+Not locked
+Not atomically replaced
+Not backed up by the application
+Not suitable for autoscaling
+External dependencies
+The frontend requires:
+
+Tailwind CDN
+Google Fonts
+YouTube IFrame API
+Failures or blocking of those services can degrade the interface.
+
+Search timeouts and retries
+The application does not define explicit Twelve Labs request timeout or retry behavior. Indexing polling can continue indefinitely.
+
+17. Recommended clean rebuild architecture
+For a from-scratch migration, I would preserve the product concept and API-provider capabilities but not reproduce the current file structure verbatim.
+
+Recommended components
+Frontend
+  ├── Search interface
+  ├── Results/player component
+  ├── Shareable result routes
+  └── Accessible loading/error states
+Backend API
+  ├── Search service
+  ├── Video catalog service
+  ├── Indexing service
+  ├── Provider adapter
+  ├── Share-result service
+  └── Health/readiness endpoints
+Database
+  ├── Videos
+  ├── Provider video IDs
+  ├── Source URLs/YouTube IDs
+  ├── Indexing tasks/status
+  └── Shared scene results
+External services
+  ├── Twelve Labs
+  └── YouTube IFrame API
+Suggested backend layering
+Routes/controllers
+Responsible only for:
+
+Parsing requests
+Validation
+Calling services
+Formatting responses
+Twelve Labs adapter
+Encapsulate:
+
+Client initialization
+Search queries
+Index creation
+URL or file ingestion
+Polling
+Error classification
+Retries
+SDK response normalization
+This prevents the application from depending directly on one version of the Twelve Labs SDK throughout the codebase.
+
+Video catalog service
+Maintain:
+
+Original source URL
+YouTube ID
+Twelve Labs video ID
+Index ID
+Title
+Thumbnail
+Duration
+Indexing state
+Creation/update times
+Failure details
+Search service
+Handle:
+
+Query validation
+Provider calls
+Ranking
+Mapping
+Confidence representation
+Result formatting
+Share service
+Create stable scene records or encoded URLs containing:
+
+Video ID
+Start
+End
+Query
+Optional title
+Optional preview image
+A shared route might look like:
+
+/scene/{public-scene-id}
+That route should reconstruct the player and scene independently of the original user’s browser state.
+
+18. Recommended data model
+A minimal relational design could be:
+
+videos
+id
+source_type
+source_url
+youtube_video_id
+title
+thumbnail_url
+duration_seconds
+created_at
+updated_at
+provider_videos
+id
+video_id
+provider
+provider_index_id
+provider_video_id
+indexing_status
+indexing_task_id
+indexed_at
+error_code
+error_message
+shared_scenes
+id
+public_id
+video_id
+query
+start_seconds
+end_seconds
+confidence
+created_at
+This replaces the fragile JSON mapping while retaining its core relationship.
+
+19. Recommended rebuild sequence
+Phase 1: Preserve and formalize the current MVP
+Create a clean Flask or FastAPI backend.
+Define a typed search API contract.
+Implement a Twelve Labs provider adapter.
+Add a persistent video/catalog database.
+Migrate the existing video mapping into that database.
+Rebuild the player UI.
+Preserve visual/audio semantic search.
+Preserve YouTube timestamp playback and looping.
+Add explicit configuration validation.
+Add health and readiness endpoints.
+Phase 2: Rebuild ingestion correctly
+Confirm the current Twelve Labs SDK/API supports URL-based ingestion for the desired source.
+Avoid downloading full YouTube videos where possible.
+Store indexing task state.
+Add bounded polling and backoff.
+Add idempotency and duplicate detection.
+Add retryable versus permanent failure classification.
+Build a basic indexing administration page or protected command.
+Make re-indexing and deletion explicit.
+Do not blindly copy the old direct-URL syntax from the historical prompt; validate it against the SDK version chosen for the new project.
+
+Phase 3: Complete sharing
+Create persistent or signed scene links.
+Reconstruct the matched scene from the URL.
+Add meaningful Open Graph metadata.
+Include the video, timestamp, and query.
+Correctly report share and clipboard failures.
+Phase 4: Production hardening
+Add structured logging.
+Add safe error responses.
+Add rate limiting.
+Add request-size and query-length limits.
+Add provider timeouts and retries.
+Add metrics for latency, failures, and provider cost.
+Bundle Tailwind instead of using the CDN.
+Add automated deployment smoke tests.
+Add backup and recovery procedures for metadata.
+Add privacy, content-rights, and acceptable-use documentation as appropriate.
+Phase 5: Product expansion
+Potential later features:
+
+Multiple search results
+Result ranking and selection
+Video library
+Search history
+Per-video search filters
+User accounts
+Saved scenes
+Collections
+Captions/transcript display
+Public scene pages
+Moderation/reporting
+Analytics
+Search quality feedback
+Phase 6: Decide RunPod’s role
+Choose one of two paths:
+
+Path A: Keep Twelve Labs
+Use Twelve Labs as the timestamped search engine and remove the unused RunPod experiment.
+
+This is the shortest path and best matches the current product.
+
+Path B: Build a custom AI pipeline
+Use RunPod for:
+
+Frame sampling
+Caption generation
+Embeddings
+Audio transcription
+Temporal segment summaries
+Retrieval and reranking
+This provides more control but is a fundamentally larger product and infrastructure effort. It should be treated as a separate architecture, not a small refactor.
+
+20. What should and should not be migrated
+Migrate conceptually
+Natural-language moment search
+Visual and audio search
+Twelve Labs-to-source-video association
+YouTube timestamp playback
+Segment looping
+Loading/error/no-match states
+The SceneIt brand direction
+Environment-based secret handling
+Gunicorn-style production serving
+Rebuild rather than copy
+main.py as one monolithic backend file
+Inline frontend JavaScript
+Local JSON persistence
+Confidence fabrication without clear labeling
+Raw exception responses
+yt-dlp subprocess ingestion
+Infinite polling loops
+Generic homepage-only sharing
+Tailwind CDN usage
+Duplicate-prone player DOM lifecycle
+Manual index ID transfer
+Undeclared dependencies
+Remove unless explicitly needed
+setup_index.py
+Local test_video.mp4
+Empty or obsolete static-video playback paths
+maxresdefault.jpg
+ping_runpod.py, unless RunPod is confirmed as part of the new roadmap
+21. Current status at a glance
+Area	Status
+Homepage	Working
+Flask server	Working
+Twelve Labs search integration	Implemented
+Visual + audio search	Implemented
+YouTube playback	Implemented
+Timestamp looping	Implemented
+YouTube ID mapping	Implemented, fragile
+Multiple indexed videos	Technically possible, unmanaged
+YouTube ingestion	Implemented through download/upload
+Direct URL ingestion	Not implemented
+Share button	Implemented
+Reproducible shared scenes	Not implemented
+RunPod vision	Standalone experiment only
+Database	Not present
+Authentication	Not present
+Rate limiting	Not present
+Automated tests	Not present
+CI/CD validation	Not present
+Monitoring/observability	Not present
+Production-safe asset pipeline	Not present
+Admin/index management UI	Not present
+22. Final assessment
+SceneIt has successfully proven its central product idea:
+
+A user can describe a moment, search semantically indexed video content, receive a timestamp range, and watch the corresponding YouTube segment.
+
+That is the most valuable accomplishment and should guide the rebuild.
+
+The existing project is best viewed as a proof of concept demonstrating three important integrations:
+
+Twelve Labs can locate semantically relevant video segments.
+Provider video IDs can be mapped back to playable YouTube sources.
+The browser can turn returned timestamps into a looping scene.
+For the migration, preserve those validated ideas but rebuild the surrounding system around:
+
+Durable metadata storage
+A formal provider adapter
+Safe and idempotent ingestion
+Stable shareable scene URLs
+Explicit configuration
+Automated tests
+Rate limiting and observability
+A clear decision about whether RunPod is experimental or strategic
+The most immediate next step should be to define the new architecture and API contracts, then rebuild the current Twelve Labs-based MVP before adding broader functionality or attempting a custom RunPod-powered replacement.
+
+
+SceneIt Web App
+Website
+
+
+
+Open SceneIt Web App
