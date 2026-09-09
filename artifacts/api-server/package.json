@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
-    "build": "node ./build.mjs",
-    "start": "node --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "dev": "python3 -m sceneit.server",
+    "build": "python3 -m compileall -q sceneit",
+    "start": "gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 2 --threads 2 --timeout 90 sceneit.server:app",
+    "typecheck": "python3 -m compileall -q sceneit"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",

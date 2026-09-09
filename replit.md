@@ -1,44 +1,68 @@
-# [Project name]
+# SceneIt — one-video ingestion proof
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A focused proof of real Twelve Labs scene retrieval over one authorized source file, with the corresponding YouTube playback and transparent validation evidence. This is not the full SceneIt rebuild.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the Flask API using the workflow-provided PORT
+- `pnpm --filter @workspace/sceneit run dev` — proof viewer; use its managed workflow
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Python dependencies: `uv sync --locked` (managed Python environment)
+- Required secrets: `TWELVE_LABS_API_KEY`, `DATABASE_URL`; never print values
+- In `artifacts/api-server`: `python3 -m sceneit.worker run --max-seconds 1200` resumes ingestion without submitting another upload when identifiers exist.
+- The worker is operator-only. It is never invoked from web requests.
+- Development DDL lives in `artifacts/api-server/sceneit/schema.sql`. Do not run the unused Drizzle schema push against these Python-owned tables. Do not apply schema changes on application startup or in a production build.
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
+- API: Flask + Gunicorn, with httpx provider adapter
+- DB: PostgreSQL + psycopg, explicit development SQL schema
+- Backend validation: Pydantic; frontend types generated from OpenAPI
 - API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Viewer: React + Vite, compiled Tailwind
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/api-server/sceneit/`: provider adapter, resumable worker, database access, search service, Flask routes.
+- `artifacts/sceneit/`: small new proof viewer; no original SceneIt frontend source was supplied to migrate.
+- `lib/api-spec/openapi.yaml`: application API contract; keep title `Api`.
+- `pyproject.toml` and `uv.lock`: Python runtime dependencies.
+- `.local/conversation-workspace/files/deliverables/sceneit-architecture-review.md`: original proposed rebuild architecture, broader than this proof's scope.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Keep Flask for application logic. **Why:** the approved review rejected a backend framework rewrite as unrelated to the ingestion risk.
+- The new React viewer is a narrow proof surface, not a migration of the original product UI. **Why:** the supplied material was a handoff document, not the old Flask/Jinja source.
+- Index the authorized file and keep its YouTube ID separate. **Why:** a YouTube watch page is not a supported raw-media ingestion URL.
+- Do not auto-retry ambiguous provider writes. **Why:** an accepted upload/index operation may already exist even when the client lost its response.
+- Source/provider duration agreement is not YouTube timeline verification. **Why:** alternate edits can have equal duration. Keep the alignment check unverified until the actual edits are compared.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- One fixed source video, real visual/audio semantic search, provider-ranked timestamp matches, YouTube playback and optional approximate loops.
+- Source stills are derived on demand at each match midpoint. The original MP4 is not exposed by a public download route.
+- Postgres-backed job identifiers and previous successful searches survive web restarts.
+- Reopening a saved search makes no new provider call. A shared, transactional 50-submission limit bounds this proof's search use.
+- Search phrases are stored in the shared proof; do not enter private information.
+- The approved source material is an original/authorized file plus its matching YouTube link. No YouTube downloader is part of the ingestion pipeline.
+- No public upload/admin endpoints, accounts, general video library, RunPod, or full shared-scene system in this proof.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+The user approved a one-video proof before a broader rebuild, and supplied the source file and matching playback URL for this purpose.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Upload asset ID and indexed-asset ID are different identities. Search `video_id` resolves to the indexed asset, never blindly to the uploaded asset.
+- Run OpenAPI codegen after every contract change; generated files are not hand-edited.
+- Application startup does not create indexes, upload media, migrate tables, or execute search.
+- `needs_review` halts ingestion rather than silently repurchasing work. Inspect the saved provider identifiers before operator recovery.
+- An interrupted search remains recorded; its provider result is not assumed absent. Use the evidence report and operator inspection rather than automatic resubmission.
+- Source still extraction depends on the uploaded workspace file and ffmpeg. A future multi-video production system should move authorized media to controlled persistent object storage.
+- The original empty Express scaffold remains unused; the registered API workflow now serves Flask.
 
 ## Pointers
 

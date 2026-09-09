@@ -1,0 +1,1 @@
+- [YouTube playback validation](youtube-playback-validation.md) — metadata and player readiness do not prove embedded playback; test actual playback before claiming alignment.

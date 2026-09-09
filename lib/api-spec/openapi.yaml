@@ -3,7 +3,7 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: SceneIt one-video ingestion and semantic-search proof.
 servers:
   - url: /api
     description: Base API path
@@ -11,6 +11,71 @@ tags:
   - name: health
     description: Health operations
 paths:
+  /proof:
+    get:
+      operationId: getProof
+      tags: [proof]
+      summary: Read the current one-video proof and its measured checks
+      responses:
+        "200":
+          description: Current proof
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Proof"
+  /proof/searches:
+    get:
+      operationId: listProofSearches
+      tags: [proof]
+      summary: Previously executed real searches, newest first
+      responses:
+        "200":
+          description: Search history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SceneSearch"
+    post:
+      operationId: searchScenes
+      tags: [proof]
+      summary: Search the single indexed video using Twelve Labs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SceneQuery"
+      responses:
+        "200":
+          description: Actual provider results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SceneSearch"
+        "400":
+          $ref: "#/components/responses/Failure"
+        "409":
+          $ref: "#/components/responses/Failure"
+        "429":
+          $ref: "#/components/responses/Failure"
+        "502":
+          $ref: "#/components/responses/Failure"
+        "503":
+          $ref: "#/components/responses/Failure"
+  /proof/report:
+    get:
+      operationId: getProofReport
+      tags: [proof]
+      summary: Download measured proof evidence as JSON
+      responses:
+        "200":
+          description: Proof evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProofReport"
   /healthz:
     get:
       operationId: healthCheck
@@ -25,7 +90,97 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 components:
+  responses:
+    Failure:
+      description: Safe, actionable failure
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiFailure"
   schemas:
+    ApiFailure:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code: { type: string }
+    ProofCheck:
+      type: object
+      required: [id, label, status, detail]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        status: { type: string, enum: [passed, pending, failed, unverified] }
+        detail: { type: string }
+    Proof:
+      type: object
+      required: [id, title, youtubeVideoId, youtubeUrl, durationSeconds, width, height, fileSizeBytes, hasAudio, state, statusMessage, model, timelineStatus, checks, searchesUsed, searchLimit, updatedAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        youtubeVideoId: { type: string }
+        youtubeUrl: { type: string }
+        durationSeconds: { type: number }
+        width: { type: integer }
+        height: { type: integer }
+        fileSizeBytes: { type: integer }
+        hasAudio: { type: boolean }
+        state: { type: string, enum: [queued, uploading, processing, indexing, ready, failed, needs_review] }
+        statusMessage: { type: string }
+        model: { type: string }
+        timelineStatus: { type: string, enum: [unverified, verified, mismatch] }
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProofCheck"
+        searchesUsed: { type: integer }
+        searchLimit: { type: integer }
+        updatedAt: { type: string }
+    SceneQuery:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query: { type: string, minLength: 1, maxLength: 500 }
+        modality: { type: string, enum: [both, visual, audio], default: both }
+    SceneMatch:
+      type: object
+      required: [rank, startSeconds, endSeconds, frameUrl, youtubeUrl]
+      properties:
+        rank: { type: integer }
+        startSeconds: { type: number }
+        endSeconds: { type: number }
+        confidenceLabel: { type: ["string", "null"] }
+        frameUrl: { type: string }
+        youtubeUrl: { type: string }
+    SceneSearch:
+      type: object
+      required: [id, query, modality, createdAt, latencyMs, matches, provider, partial]
+      properties:
+        id: { type: string }
+        query: { type: string }
+        modality: { type: string, enum: [both, visual, audio] }
+        createdAt: { type: string }
+        latencyMs: { type: integer }
+        provider: { type: string, enum: [Twelve Labs] }
+        partial: { type: boolean }
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/SceneMatch"
+    ProofReport:
+      type: object
+      required: [proof, searches, limitations]
+      properties:
+        proof:
+          $ref: "#/components/schemas/Proof"
+        searches:
+          type: array
+          items:
+            $ref: "#/components/schemas/SceneSearch"
+        limitations:
+          type: array
+          items: { type: string }
     HealthStatus:
       type: object
       properties:

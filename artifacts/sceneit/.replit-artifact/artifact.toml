@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "SceneIt — One-video Proof"
+description = "A focused validation viewer for real Twelve Labs scene search over one authorized video, paired with its YouTube playback and transparent indexing evidence."
+version = "1.0.0"
+id = "artifacts/sceneit"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24046
+
+[services.development]
+run = "pnpm --filter @workspace/sceneit run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/sceneit", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/sceneit/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24046"
+BASE_PATH = "/"
