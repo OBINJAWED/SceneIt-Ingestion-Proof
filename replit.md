@@ -92,4 +92,5 @@ The user approved a one-video proof before a broader rebuild, and supplied the s
 
 ## Pointers
 
+- See `artifacts/api-server/docs/technical-overview.md` for the detailed architecture, code map, data flows, decisions, and verification boundaries.
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

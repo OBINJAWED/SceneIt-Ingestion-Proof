@@ -29,3 +29,45 @@ mtime_ms = 1788970485561
 storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:e6215cfb-e87c-4088-a123-9a3068aecef4/37a9f30b-87a9-44b2-afa5-26594dfcc5b9/077b2bb6-360c-4fc9-bd0c-4b68b1fde221"
 storage_version_token = "1788970521160063"
 content_type = "text/html"
+
+[[outputs]]
+id = "CuFNi3F5kemjjEAirWcVh"
+uri = "file://artifacts/api-server/docs/technical-overview.pdf"
+type = "pdf"
+title = "SceneIt Technical Overview — PDF"
+description = "25-page, source-checked reference covering architecture, technologies, data flows, security, operations, testing and technical decisions."
+logical_id = "2d988411-6289-4f8e-a9f3-5e7c4aa880c5"
+content_hash = "sha256:bda40d1b4d886352cd6393467ff57ef773e6104f528caa2a7ec6460e8469ca61"
+size = 528313
+mtime_ms = 1789046691662
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:e6215cfb-e87c-4088-a123-9a3068aecef4/2d988411-6289-4f8e-a9f3-5e7c4aa880c5/8961995c-2c3e-43ca-ae4c-cad263384d1d"
+storage_version_token = "1789046720438462"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "fdymnNXqyucM9ELbeKOse"
+uri = "file://artifacts/api-server/docs/technical-overview.html"
+type = "text"
+title = "SceneIt Technical Overview — Offline HTML"
+description = "Self-contained browser-readable edition with a linked table of contents. No external assets or network access required."
+logical_id = "7eedaae6-20f1-4118-9a03-a247c8d2b7f3"
+content_hash = "sha256:38fdd5d23ff7d57af7fcfed4be4e85f789ad1298c8ab0c3f06e2ac65ff53de26"
+size = 67461
+mtime_ms = 1789046690870
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:e6215cfb-e87c-4088-a123-9a3068aecef4/7eedaae6-20f1-4118-9a03-a247c8d2b7f3/adcbfd04-e30a-4c67-98cc-6530e214e21b"
+storage_version_token = "1789046721017679"
+content_type = "text/html"
+
+[[outputs]]
+id = "0fKbcdkIBipMrjuqYyY1b"
+uri = "file://artifacts/api-server/docs/technical-overview.md"
+type = "text"
+title = "SceneIt Technical Overview — Editable Markdown"
+description = "The editable source document, also linked from replit.md."
+logical_id = "d0e4f580-c07c-4198-9143-c25fe4e15d74"
+content_hash = "sha256:f2eebce663593fef025e2aae9ac9895f76099ca3aae7e0db160e2f4fab376fb0"
+size = 51516
+mtime_ms = 1789046624107
+storage_uri = "gcs://replit-rams-assets-reed/rams/assets/repl:e6215cfb-e87c-4088-a123-9a3068aecef4/d0e4f580-c07c-4198-9143-c25fe4e15d74/62dc070b-9c47-4da5-a93c-19ff015a7839"
+storage_version_token = "1789046721530915"
+content_type = "text/markdown"

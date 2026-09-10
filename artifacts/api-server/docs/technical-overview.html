@@ -1,0 +1,984 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SceneIt — Technical Architecture and Engineering Overview</title><style>
+:root{--ink:#172a2b;--muted:#546663;--accent:#51796e;--line:#d9e2df;--soft:#f3f6f5}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);background:#edf1ef;font:15px/1.6 Arial,Helvetica,sans-serif}.document{max-width:980px;margin:30px auto;background:#fff;padding:54px 62px;box-shadow:0 8px 42px #173d2b10}h1,h2,h3{line-height:1.2;letter-spacing:-.025em}h1{font-size:48px;font-weight:700;margin:38px 0 28px}h2{font-size:25px;margin:40px 0 17px;padding-bottom:10px;border-bottom:1px solid var(--line);color:#21473e}h3{font-size:17px;margin:25px 0 10px;color:#2e5147}p{margin:0 0 14px}li{margin:5px 0}ul,ol{padding-left:22px;margin:10px 0 19px}strong{font-weight:700}code{font:0.85em/1.4 'DejaVu Sans Mono',Consolas,monospace;overflow-wrap:anywhere;background:var(--soft);padding:1px 4px;border-radius:3px}pre{padding:18px;background:var(--soft);border:1px solid var(--line);border-radius:7px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}pre code{padding:0;font-size:11px;background:none}table{width:100%;border-collapse:collapse;margin:18px 0 24px;font-size:13px;line-height:1.45;table-layout:fixed}th,td{border:1px solid var(--line);padding:10px 11px;vertical-align:top;overflow-wrap:anywhere}th{background:#eaf0ed;color:#23463b;text-align:left;font-weight:700}th:first-child,td:first-child{width:26%}a{color:#315f50;text-decoration:none}.cover{min-height:850px;display:flex;flex-direction:column;justify-content:space-between;border-top:6px solid var(--accent);padding:25px 0 48px}.eyebrow{text-transform:uppercase;letter-spacing:.19em;font-size:12px;font-weight:700;color:var(--accent)}.cover .subtitle{font-size:21px;line-height:1.6;color:var(--muted);max-width:660px}.metadata{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin:45px 0}.metadata small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px}.metadata strong{font-size:16px}.notice{padding:18px 22px;border-left:3px solid var(--accent);background:var(--soft);font-size:13px;line-height:1.6}.toc{padding:20px 0 42px}.toc-links{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px}.toc a{font-size:14px;line-height:1.45;padding:5px 0;border-bottom:1px solid #edf1ef}.toc h2{margin-top:0}.screen-note{padding:16px 20px;background:var(--soft);font-size:12px;color:var(--muted);margin-bottom:35px}article>p:first-child{font-size:12px;color:var(--muted)}blockquote{border-left:3px solid var(--accent);margin:20px 0;padding-left:20px}
+@page{size:A4;margin:19mm 17mm 20mm}
+@media print{html{scroll-behavior:auto}body{background:#fff;font-size:10pt;line-height:1.46}.document{max-width:none;margin:0;padding:0;box-shadow:none}.cover{min-height:235mm;padding:7mm 0 12mm;break-after:page}.cover h1{font-size:35pt;line-height:1.15;max-width:150mm}.cover .subtitle{font-size:14pt;line-height:1.65}.metadata strong{font-size:11pt}.notice{font-size:9pt}.toc{break-after:page;padding-top:6mm}.toc-links{gap:10px 20px}.toc a{font-size:10pt;line-height:1.5}.toc h2{font-size:22pt;margin-bottom:28px}h2{font-size:17pt;margin:22pt 0 10pt;padding-bottom:7pt;break-after:avoid}h3{font-size:12pt;margin:17pt 0 8pt;break-after:avoid}p,li{orphans:3;widows:3}p{margin-bottom:9pt}ul,ol{margin:7pt 0 12pt}li{margin:3pt 0}pre{break-inside:avoid;padding:11pt;margin:12pt 0;line-height:1.3}pre code{font-size:7.5pt}table{font-size:8.4pt;line-height:1.4;margin:12pt 0 17pt}th,td{padding:7pt 7pt}thead{display:table-header-group}tr{break-inside:avoid}code{font-size:.85em}.screen-note{display:none}a{color:inherit}.cover,.notice,pre,th{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+@media screen and (max-width:700px){.document{padding:26px 22px;margin:0}h1{font-size:37px}.cover{min-height:auto;gap:35px}.metadata,.toc-links{grid-template-columns:1fr}table{font-size:11px}th,td{padding:7px}h2{font-size:23px}}
+</style></head><body><main class="document"><section class="cover"><div><div class="eyebrow">SceneIt · Engineering Reference</div><h1>Technical architecture<br>and engineering overview</h1><p class="subtitle">A detailed reference to the current system: its code structure, technology stack, data flows, security boundaries and engineering decisions.</p><div class="metadata"><div><small>Prepared</small><strong>10 September 2026</strong></div><div><small>Source snapshot</small><strong>Main branch · 26ab112</strong></div><div><small>Coverage</small><strong>21 sections · Full-stack architecture</strong></div><div><small>Intended readers</small><strong>Engineers, operators and product owners</strong></div></div></div><div class="notice"><strong>Implementation is not activation.</strong><br>This document distinguishes built functionality, configuration-dependent availability and external verification. It contains no credentials or customer data and does not certify a production launch.</div></section><nav class="toc" aria-label="Contents"><h2>Contents</h2><div class="toc-links"><a href="#section-1-product-scope-and-architectural-history">1. Product scope and architectural history</a><a href="#section-2-high-level-architecture">2. High-level architecture</a><a href="#section-3-technology-stack">3. Technology stack</a><a href="#section-4-repository-and-workspace-structure">4. Repository and workspace structure</a><a href="#section-5-frontend-architecture">5. Frontend architecture</a><a href="#section-6-api-contract-and-generated-code-workflow">6. API contract and generated-code workflow</a><a href="#section-7-backend-structure-and-request-lifecycle">7. Backend structure and request lifecycle</a><a href="#section-8-persistence-and-data-model">8. Persistence and data model</a><a href="#section-9-video-import-and-processing-lifecycle">9. Video import and processing lifecycle</a><a href="#section-10-search-evidence-and-playback">10. Search, evidence and playback</a><a href="#section-11-authentication-ownership-and-admission">11. Authentication, ownership and admission</a><a href="#section-12-allowances-quotas-and-cost-controls">12. Allowances, quotas and cost controls</a><a href="#section-13-billing-and-subscription-architecture">13. Billing and subscription architecture</a><a href="#section-14-security-and-failure-handling-principles">14. Security and failure-handling principles</a><a href="#section-15-runtime-deployment-and-operations">15. Runtime, deployment and operations</a><a href="#section-16-configuration-model">16. Configuration model</a><a href="#section-17-testing-and-verification-strategy">17. Testing and verification strategy</a><a href="#section-18-key-technical-decisions-and-trade-offs">18. Key technical decisions and trade-offs</a><a href="#section-19-current-limitations-and-sensible-extension-boundaries">19. Current limitations and sensible extension boundaries</a><a href="#section-20-contributor-workflow-and-command-reference">20. Contributor workflow and command reference</a><a href="#section-21-source-map-and-further-reading">21. Source map and further reading</a></div></nav><div class="screen-note">This is a self-contained, offline document. The editable source is <code>artifacts/api-server/docs/technical-overview.md</code>.</div><article><p><strong>Prepared:</strong> 10 September 2026<br>
+<strong>Source snapshot:</strong> <code>26ab112</code> on the main branch<br>
+<strong>Audience:</strong> engineers, technical collaborators, operators, and product owners</p>
+<p>This document describes the current implementation, its structure, and the reasoning behind its major engineering choices. It distinguishes code that exists from features that have been activated or certified against live external services. It is an architecture reference, not a production-readiness certificate.</p>
+<p>No credentials, customer records, private object locations, or signed URLs are included. Versions below describe the current technology families and declared dependencies; the lockfiles are authoritative for exact resolved versions.</p>
+<h2 id="section-1-product-scope-and-architectural-history">1. Product scope and architectural history</h2>
+<p>SceneIt lets a user provide an authorized video, describe a scene or event in natural language, and inspect ranked matches with timestamps and playback.</p>
+<p>The project began as a deliberately narrow proof: index one authorized video with Twelve Labs, search it, and compare the indexed source with a separately supplied YouTube reference. It subsequently gained private imports, accounts, source playback, controlled-pilot safeguards, email trials, and subscription infrastructure.</p>
+<p>Two product paths remain intentionally distinct:</p>
+<ul>
+<li><strong>Preserved shared proof:</strong> one fixed demonstration video, shared search history among admitted pilot participants, and its own cumulative search budget.</li>
+<li><strong>Private imports:</strong> owner-scoped imports, processing state, searches, evidence, and authorized source playback. Private data is not added to the shared demo.</li>
+</ul>
+<p>The current application is not a general video library, collaborative sharing service, cross-video search engine, native mobile application, or video editor. It works around individual imports, with a restriction on concurrent active imports per owner.</p>
+<p>An important historical decision was to <strong>keep Flask</strong> rather than replace the backend framework. The approved work focused on ingestion correctness and evidence, not a framework rewrite. The React application was built as a new client surface; it should not be described as a migration of an existing Flask/Jinja frontend whose source was never supplied.</p>
+<h2 id="section-2-high-level-architecture">2. High-level architecture</h2>
+<p>The system is best described as a <strong>modular Flask application with a separately operated worker and a React single-page application</strong>. It is not a fleet of independently deployed application microservices.</p>
+<pre><code class="language-text">Browser: React + TypeScript + Vite
+  |
+  | Same-origin JSON APIs, session cookies, CSRF headers
+  v
+Managed application routing
+  |
+  v
+Flask API / Gunicorn
+  |-- PostgreSQL: identity, jobs, results, quotas, billing journals
+  |-- Private object storage: source media and cached demo stills
+  |-- Replit OIDC / Firebase Auth: identity verification
+  |-- Stripe: hosted billing and verified lifecycle events
+  |
+  | Durable import records; not an in-memory queue
+  v
+Separate private-import worker
+  |-- PostgreSQL claims, leases, fencing and heartbeat
+  |-- Bounded retrieval, ffprobe / ffmpeg, hashing
+  |-- Twelve Labs upload, indexing and status reconciliation
+  `-- Cancellation, expiry and resource cleanup
+
+Browser -- scoped upload session --&gt; Private object storage
+Browser &lt;-- owner-authorized media -- Flask API
+Browser ------ hosted payment flow ------&gt; Stripe
+</code></pre>
+<h3>Responsibility split</h3>
+<ul>
+<li><strong>Browser:</strong> presentation, file selection, transfer progress, cancellation controls, query caching, playback controls, and authentication/billing navigation.</li>
+<li><strong>Flask API:</strong> authoritative validation, authentication, authorization, transactional reservations, state changes, search orchestration, media access, and billing operations.</li>
+<li><strong>Import worker:</strong> browser-independent ingestion, reconciliation, cleanup, and background preparation of preserved-demo stills. Private-import match frames use a different request-time path.</li>
+<li><strong>PostgreSQL:</strong> durable coordination and business state, including work that may have an uncertain external outcome.</li>
+<li><strong>Object storage:</strong> persistent private binary media and cached preserved-demo stills. Database rows reference objects and generations; the application does not put video bytes into relational rows. Private-import match JPEGs are generated on request, not saved as durable evidence objects.</li>
+<li><strong>External services:</strong> Twelve Labs supplies semantic video indexing/search; identity providers verify users; Stripe operates hosted payment interfaces.</li>
+</ul>
+<p>There is no application-owned GPU inference service or local semantic vector database. Twelve Labs owns the video index and semantic ranking. There is also no Celery/Redis broker in the current import architecture: durable job coordination uses PostgreSQL.</p>
+<h2 id="section-3-technology-stack">3. Technology stack</h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Technology</th>
+<th>Current role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Frontend language</td>
+<td>TypeScript 5.9</td>
+<td>Typed application, component, and API-client code</td>
+</tr>
+<tr>
+<td>UI runtime</td>
+<td>React 19</td>
+<td>Browser single-page application</td>
+</tr>
+<tr>
+<td>Frontend tooling</td>
+<td>Vite 7</td>
+<td>Development server and production client build</td>
+</tr>
+<tr>
+<td>Routing</td>
+<td>Wouter 3</td>
+<td>Lightweight client-side routing with a configured base path</td>
+</tr>
+<tr>
+<td>Server state</td>
+<td>TanStack Query 5</td>
+<td>Queries, mutations, polling, cache invalidation</td>
+</tr>
+<tr>
+<td>Styling</td>
+<td>Tailwind CSS 4</td>
+<td>Utility styling and semantic design tokens</td>
+</tr>
+<tr>
+<td>UI primitives</td>
+<td>Radix/shadcn-style components</td>
+<td>Dialogs, controls, accessible primitives</td>
+</tr>
+<tr>
+<td>UI support</td>
+<td>Lucide, CVA, clsx, tailwind-merge</td>
+<td>Icons and component class composition</td>
+</tr>
+<tr>
+<td>Backend language</td>
+<td>Python 3.13+</td>
+<td>Application and worker implementation</td>
+</tr>
+<tr>
+<td>HTTP application</td>
+<td>Flask 3</td>
+<td>API routes, authentication and domain services</td>
+</tr>
+<tr>
+<td>Production HTTP server</td>
+<td>Gunicorn</td>
+<td>WSGI process/thread and request-runtime configuration</td>
+</tr>
+<tr>
+<td>Validation</td>
+<td>Pydantic 2</td>
+<td>Strict Python request/domain validation</td>
+</tr>
+<tr>
+<td>Relational persistence</td>
+<td>PostgreSQL + psycopg 3</td>
+<td>SQL-owned schema, transactions, locks and durable records</td>
+</tr>
+<tr>
+<td>Provider HTTP</td>
+<td>httpx</td>
+<td>Twelve Labs adapter and bounded external HTTP work</td>
+</tr>
+<tr>
+<td>Video analysis</td>
+<td>Twelve Labs API v1.3</td>
+<td>Remote indexing, processing and semantic search</td>
+</tr>
+<tr>
+<td>Media tools</td>
+<td>ffprobe and ffmpeg</td>
+<td>Inspection, decoding and evidence-frame extraction</td>
+</tr>
+<tr>
+<td>Link resolution</td>
+<td>Pinned yt-dlp</td>
+<td>Constrained retrieval for permitted non-YouTube sources</td>
+</tr>
+<tr>
+<td>Object storage</td>
+<td>Google Cloud Storage client / App Storage</td>
+<td>Private media, object generations and upload sessions</td>
+</tr>
+<tr>
+<td>Pilot identity</td>
+<td>Replit OIDC + Authlib</td>
+<td>Verified login using OIDC and PKCE</td>
+</tr>
+<tr>
+<td>Email identity</td>
+<td>Firebase Auth JS 12 + Firebase Admin 7</td>
+<td>Email/password, verification and reset, server token verification</td>
+</tr>
+<tr>
+<td>Payments</td>
+<td>Stripe Python SDK 15 family</td>
+<td>Hosted Checkout/Portal and verified billing events</td>
+</tr>
+<tr>
+<td>API contract</td>
+<td>OpenAPI + Orval + Zod 3</td>
+<td>Generated TypeScript client/hooks and validation schemas</td>
+</tr>
+<tr>
+<td>Dependency management</td>
+<td>pnpm workspaces + uv</td>
+<td>JavaScript workspace orchestration and locked Python dependencies</td>
+</tr>
+<tr>
+<td>Tests</td>
+<td>Python unittest, TypeScript behavior tests, Playwright</td>
+<td>Backend, isolated-database, contract and browser checks</td>
+</tr>
+</tbody>
+</table>
+<p>Some packages are inherited scaffolding or general UI inventory. A declared dependency is not proof that it is central to the product. In particular, <strong>Express and Drizzle are present in the scaffold but are not the running application backend or the owner of the current SQL schema</strong>.</p>
+<p>The Python manifest uses minimum version constraints for most libraries, while <code>uv.lock</code> records resolved versions. The link extractor is explicitly pinned, reflecting the sensitivity of extractor behavior to upstream changes.</p>
+<h2 id="section-4-repository-and-workspace-structure">4. Repository and workspace structure</h2>
+<pre><code class="language-text">/
+|-- artifacts/
+|   |-- sceneit/                  React product application
+|   |   |-- src/pages/            Product, auth, import, demo, billing pages
+|   |   |-- src/components/       Upload, search, playback, evidence, UI
+|   |   |-- src/lib/              Browser helpers and local behavior
+|   |   |-- tests/                Browser cases and synthetic fixtures
+|   |   `-- vite.config.ts
+|   |
+|   |-- api-server/
+|   |   |-- sceneit/              Python application and worker modules
+|   |   |   |-- migrations/       Versioned SQL migrations
+|   |   |   |-- server.py         Flask application entry
+|   |   |   |-- import_worker.py  Private ingestion/cleanup worker
+|   |   |   `-- worker.py         Preserved-proof/operator commands
+|   |   |-- tests/                Python boundary and persistence tests
+|   |   |-- docs/                 Architecture, operation and audit references
+|   |   `-- src/                  Unused original Node/Express scaffold
+|   |
+|   `-- mockup-sandbox/           Isolated design/component preview service
+|
+|-- lib/
+|   |-- api-spec/                 OpenAPI source and Orval configuration
+|   |-- api-client-react/         Generated client/types/hooks and custom fetch
+|   |-- api-zod/                  Generated Zod schemas
+|   |-- replit-auth-web/          Shared browser session/authentication logic
+|   `-- db/                       Original Drizzle scaffold; not schema authority
+|
+|-- scripts/                     Quality, contracts, migration and release tools
+|-- pyproject.toml / uv.lock      Python dependency declarations and lock
+|-- package.json                 Root orchestration commands
+|-- pnpm-workspace.yaml          Workspace packages and shared version catalog
+|-- pnpm-lock.yaml               JavaScript dependency lock
+|-- tsconfig*.json               Shared TypeScript/project-reference settings
+`-- replit.md                    Project scope, operating rules and entry points
+</code></pre>
+<p>The declared workspace patterns include <code>artifacts/*</code>, <code>lib/*</code>, <code>lib/integrations/*</code>, and <code>scripts</code>; the integrations pattern is reserved configuration, not a currently populated package directory. Node/pnpm orchestrates both JavaScript builds and Python commands; a package called <code>@workspace/api-server</code> does not imply a Node HTTP implementation.</p>
+<p>The mockup sandbox is a design tool, not a second production frontend or a customer-facing part of SceneIt. Its isolated previews should not be confused with the live application.</p>
+<h2 id="section-5-frontend-architecture">5. Frontend architecture</h2>
+<h3>Entry, routing and providers</h3>
+<p><code>artifacts/sceneit/src/main.tsx</code> mounts the React root and application error boundary. <code>App.tsx</code> composes routing, the shared authentication provider, TanStack Query, tooltips and notification UI.</p>
+<p>The principal client routes are:</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/</code></td>
+<td>Import entry: MP4/link choice and onboarding context</td>
+</tr>
+<tr>
+<td><code>/auth</code></td>
+<td>Email sign-in/signup and related recovery states</td>
+</tr>
+<tr>
+<td><code>/auth/action</code></td>
+<td>Verification and password-reset action handling</td>
+</tr>
+<tr>
+<td><code>/imports/:id</code></td>
+<td>One private import: status, upload, results and playback</td>
+</tr>
+<tr>
+<td><code>/demo</code></td>
+<td>Preserved shared proof, behind pilot admission</td>
+</tr>
+<tr>
+<td><code>/billing</code></td>
+<td>Billing status, usage and eligible hosted billing actions</td>
+</tr>
+<tr>
+<td>Fallback</td>
+<td>Not-found state</td>
+</tr>
+</tbody>
+</table>
+<p>Wouter uses the configured Vite base URL. The frontend build goes to <code>dist/public</code>. Vite requires the managed <code>PORT</code> and <code>BASE_PATH</code>, binds to all interfaces, and uses a strict port rather than silently selecting an unrelated one.</p>
+<p>The Vite configuration does <strong>not</strong> define a local API proxy. Browser API calls use the generated <code>/api</code> contract/custom fetch through the application’s managed routing. Deployment routing must preserve that contract; changing only the frontend base path does not automatically relocate every API endpoint.</p>
+<h3>State management</h3>
+<p>The application separates:</p>
+<ul>
+<li><strong>Server state:</strong> imports, results, history, session/configuration, billing status and allowances, held in TanStack Query.</li>
+<li><strong>Ephemeral UI state:</strong> selected files, active scene, query input, modal visibility and transfer progress, held in React state/refs.</li>
+<li><strong>Authentication coordination:</strong> centralized in <code>lib/replit-auth-web</code>, not duplicated across page components.</li>
+<li><strong>Limited recovery state:</strong> sanitized navigation/import intent and billing idempotency state, used to resume user interaction without automatically repeating expensive actions.</li>
+</ul>
+<p>Import and proof pages poll nonterminal processing states. Mutations invalidate relevant detail/history/current-import caches. Shared auth handling and application-level cache resets prevent another account’s private state from remaining visible after an identity change.</p>
+<p>Cached results are a performance and usability mechanism, not an authorization mechanism. The API rechecks ownership and permissions regardless of what the browser has cached.</p>
+<h3>Upload controls and cancellation</h3>
+<p>File bytes are transferred with <code>XMLHttpRequest</code>, which provides upload progress and an explicit abort mechanism. An <code>AbortSignal</code> connects the page-level cancellation decision to the active transfer.</p>
+<p>The implementation guards continuation after reservation, transfer and completion, so a late response cannot silently advance a cancelled browser operation. Component cleanup aborts an active transfer. A failed server-cancellation request leaves honest stopped/retry controls rather than automatically resuming the upload.</p>
+<p>An in-app confirmation dialog explains that cancellation schedules private-media cleanup and does not replenish used allowances. Browser transfer abort, server acknowledgement and completed cleanup are separate outcomes.</p>
+<h3>Visual system and accessibility</h3>
+<p>The current UI uses a dark slate palette with restrained sage accents, semantic color/radius tokens, Plus Jakarta Sans for interface text, and JetBrains Mono where appropriate. Tailwind utilities and reusable Radix/shadcn-style wrappers provide consistent composition.</p>
+<p>Focus-visible and reduced-motion styling exist, but component-library accessibility does not constitute a complete accessibility audit. A known heading/navigation improvement was not completed, and real assistive-technology verification remains separate.</p>
+<p>The application is a browser SPA, not an Expo application, native iOS/Android client, or server-rendered Next.js application.</p>
+<h2 id="section-6-api-contract-and-generated-code-workflow">6. API contract and generated-code workflow</h2>
+<p>The central API description is <code>lib/api-spec/openapi.yaml</code>. Orval generates:</p>
+<ol>
+<li>TypeScript request/response types and API functions.</li>
+<li>React Query hooks in <code>lib/api-client-react/src/generated/</code>.</li>
+<li>Zod schemas/types in <code>lib/api-zod/src/generated/</code>.</li>
+</ol>
+<p>The client uses a shared custom fetch implementation for transport, response/error handling and request options. Protected mutations attach the CSRF header supplied by the authenticated session context.</p>
+<p>The contract does not generate the Flask application. Python handlers and Pydantic models must implement the declared behavior. Contract tests therefore need to validate actual route emissions, not merely confirm that a hand-written fixture satisfies the generated schema.</p>
+<p>Main API families include:</p>
+<ul>
+<li><code>/api/auth/session</code> and the Firebase authentication endpoints.</li>
+<li><code>/api/proof</code> and preserved-proof search/evidence operations.</li>
+<li><code>/api/imports</code> and owner-scoped upload, completion, cancellation, search and media operations.</li>
+<li><code>/api/billing/status</code>, hosted session creation, change preview/confirm/withdraw and webhook handling.</li>
+<li><code>/api/healthz</code> and <code>/api/readyz</code>.</li>
+</ul>
+<p><strong>Change rule:</strong> edit the OpenAPI source, regenerate, update the Python implementation and client usage, then run contract/type checks. Generated files are not hand-edited.</p>
+<p><code>check:contract-drift</code> regenerates and compares generated trees, helping detect changes that would otherwise leave backend, types and browser behavior out of sync.</p>
+<h2 id="section-7-backend-structure-and-request-lifecycle">7. Backend structure and request lifecycle</h2>
+<p>The Flask application factory and module-level application live in <code>sceneit/server.py</code>. Domain logic is split into focused Python modules rather than embedded entirely in route handlers.</p>
+<table>
+<thead>
+<tr>
+<th>Module/group</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>server.py</code>, <code>health.py</code></td>
+<td>Application composition, proof endpoints and health</td>
+</tr>
+<tr>
+<td><code>security.py</code>, <code>auth.py</code>, <code>firebase_auth.py</code></td>
+<td>Host/origin policy, sessions, admission and identity</td>
+</tr>
+<tr>
+<td><code>imports.py</code>, <code>import_search.py</code></td>
+<td>Private import HTTP operations and search orchestration</td>
+</tr>
+<tr>
+<td><code>import_worker.py</code>, <code>worker.py</code></td>
+<td>Background private imports and preserved-proof/operator work</td>
+</tr>
+<tr>
+<td><code>provider.py</code></td>
+<td>Twelve Labs protocol, parsing and bounded search transport</td>
+</tr>
+<tr>
+<td><code>private_storage.py</code>, <code>proof_media.py</code></td>
+<td>Private objects, upload sessions, range reads and evidence</td>
+</tr>
+<tr>
+<td><code>db.py</code>, <code>migrate.py</code>, <code>schema.sql</code></td>
+<td>Database boundaries and migration authority</td>
+</tr>
+<tr>
+<td><code>quota.py</code>, import-limit modules</td>
+<td>Transactional reservations and usage enforcement</td>
+</tr>
+<tr>
+<td><code>billing*.py</code>, <code>quota_ops.py</code></td>
+<td>Billing lifecycle, provider adapter, notifications and reconciliation</td>
+</tr>
+</tbody>
+</table>
+<p>A protected operation generally follows this order:</p>
+<ol>
+<li>Enforce host, origin, body-size and route-level security policy.</li>
+<li>Resolve a verified server session.</li>
+<li>Check the relevant admission, ownership and/or entitlement rule.</li>
+<li>Validate the request and enforce current lifecycle state.</li>
+<li>Acquire bounded capacity and transactional business reservations.</li>
+<li>Perform the allowed action, preserving external-operation uncertainty.</li>
+<li>Persist the outcome and return a constrained response.</li>
+</ol>
+<p>Not every operation has identical authorization: shared proof admission, private ownership and paid entitlement are deliberately different checks.</p>
+<p>Flask startup configures the application; it does not upload media, create provider indexes, or migrate the database. Production serving uses Gunicorn rather than Flask’s development server.</p>
+<h2 id="section-8-persistence-and-data-model">8. Persistence and data model</h2>
+<h3>PostgreSQL is the application authority</h3>
+<p>The backend uses psycopg with dictionary rows and explicit SQL. It does not use the inherited Drizzle package to manage these tables.</p>
+<p>Connection admission is bounded before opening database sockets, with configured connection, statement, lock and idle-transaction timeouts. Application limits must be paired with an appropriately constrained database role; process-local controls alone do not prove a deployment-wide connection ceiling.</p>
+<p>Transactions commit when the connection context exits successfully. Worker operations additionally use appropriate autocommit paths, advisory locks and row-level coordination.</p>
+<h3>Major entity groups</h3>
+<table>
+<thead>
+<tr>
+<th>Group</th>
+<th>Durable information</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Preserved proof</td>
+<td>Source/provider identities, metadata, searches and evidence</td>
+</tr>
+<tr>
+<td>Private imports</td>
+<td>Owner, source metadata, lifecycle, provider identifiers, media generation, expiry and leases</td>
+</tr>
+<tr>
+<td>Upload attempts</td>
+<td>Attempt identity, reservation/uncertainty state and attributable storage/work usage</td>
+</tr>
+<tr>
+<td>Search operations</td>
+<td>Normalized query identity, execution state, ranked matches and resolution markers</td>
+</tr>
+<tr>
+<td>Authentication</td>
+<td>Application owners, provider identities, server sessions and revocation/revalidation state</td>
+</tr>
+<tr>
+<td>Trial ledgers</td>
+<td>Durable eligibility and consumed cumulative allowances</td>
+</tr>
+<tr>
+<td>Capacity/throttles</td>
+<td>Bounded resource permits, leases and rate-limit accounting</td>
+</tr>
+<tr>
+<td>Commercial quota</td>
+<td>Usage windows, reservations, concurrent storage occupancy and audited releases</td>
+</tr>
+<tr>
+<td>Billing</td>
+<td>Customers/subscriptions, verified coverage, event/operation journals and scheduled changes</td>
+</tr>
+<tr>
+<td>Notifications</td>
+<td>Outbox state, bounded delivery attempts and ambiguous outcomes</td>
+</tr>
+</tbody>
+</table>
+<p>Provider identifiers and object generations are not incidental metadata: they are part of the consistency and cleanup model.</p>
+<h3>Migrations</h3>
+<p>Versioned Python-owned SQL migrations and the migration runner define schema evolution. Applied migration history is validated; existing migrations should not be casually rewritten.</p>
+<p>Development upgrades use an explicit development migration command or the approved post-merge setup path. Production migration is an explicit operator action, separate from build and web/worker startup.</p>
+<p>Database and object storage backups must be coordinated. A database-only restore does not prove that referenced media exists at the required object generations.</p>
+<p>Private match-frame URLs are derived views, not references to independently persisted JPEG objects. Their source media and database match metadata matter for recovery; a frame URL by itself is not a backed-up asset.</p>
+<h2 id="section-9-video-import-and-processing-lifecycle">9. Video import and processing lifecycle</h2>
+<h3>Entry and upload</h3>
+<ol>
+<li><code>POST /api/imports</code> validates the request, canonicalizes any supported link, enforces idempotency/owner rules, and creates durable import state.</li>
+<li>For an MP4, <code>POST /api/imports/{id}/upload</code> validates filename/type/declared size and reserves an upload attempt and applicable allowances before obtaining storage authorization.</li>
+<li>The browser receives a scoped resumable storage session and sends file bytes directly to object storage.</li>
+<li><code>POST /api/imports/{id}/complete</code> verifies the actual stored object, including size, content type and immutable generation, before queueing processing.</li>
+<li>The worker claims eligible work from PostgreSQL and progresses the import independently of the browser.</li>
+</ol>
+<p>Storage resumability should not be confused with automatic browser-file restoration. The user may need to reselect a local file after a reload. Durable server processing state can survive browser navigation; an in-memory <code>File</code> object cannot.</p>
+<h3>Source retrieval and inspection</h3>
+<p>YouTube links are reference/context plus an authorized MP4, not downloader input. Other supported platforms use constrained direct retrieval only when permitted and technically safe; otherwise the application requests a file.</p>
+<p>The worker uses bounded retrieval and media inspection. ffprobe/ffmpeg, hashes, codecs, dimensions, audio availability and duration checks establish what was actually uploaded. Same-owner fingerprint deduplication can reuse eligible resources; it is not cross-user media sharing.</p>
+<h3>Provider pipeline</h3>
+<p>The provider sequence is explicit:</p>
+<pre><code class="language-text">Obtain authorized source
+  -&gt; validate media
+  -&gt; create provider index
+  -&gt; upload source asset
+  -&gt; poll source-asset processing
+  -&gt; index the asset
+  -&gt; poll indexed-asset processing
+  -&gt; validate provider/source metadata
+  -&gt; mark ready
+</code></pre>
+<p>The <strong>uploaded source asset ID and indexed asset ID are different identities</strong>. Search must use the indexed identity. Source/provider duration agreement is a consistency check; it does not prove that a linked YouTube edit shares the same timeline.</p>
+<h3>State model and recovery</h3>
+<p>The lifecycle vocabulary includes <code>awaiting_upload</code>, <code>file_required</code>, <code>queued</code>, <code>resolving</code>, <code>validating</code>, <code>uploading</code>, <code>processing</code>, <code>indexing</code>, <code>ready</code>, <code>cancel_requested</code>, <code>cancelled</code>, <code>expired</code>, <code>failed</code> and <code>needs_review</code>.</p>
+<p>These are not a single strictly linear chain: fallback, cancellation, expiry and uncertain external writes create branches. In particular, a browser upload reservation remains in an awaiting-file/upload state; provider <code>uploading</code> is a different processing stage.</p>
+<p>The worker uses row claims, leases, heartbeats and fencing checks. A worker that loses ownership must stop making new provider changes or committing stale outcomes. External-write intent is recorded before sending a mutation; an ambiguous restart does not silently repeat the purchase/work.</p>
+<h3>Cancellation and retention</h3>
+<p>The cancel endpoint records <code>cancel_requested</code>. The worker revokes upload sessions, reconciles provider-side work and deletes resources in dependency-aware order, while retaining resources still referenced by another valid same-owner import.</p>
+<p>Access expiry and physical deletion are different guarantees. Access can be closed while uncertain provider cleanup still requires operator review. Similarly, the application’s upload acceptance deadline does not revoke the underlying storage bearer session: explicit revocation and generation constraints remain necessary.</p>
+<h2 id="section-10-search-evidence-and-playback">10. Search, evidence and playback</h2>
+<p>Private search requires an owned, ready, non-expired import and appropriate allowance/capacity. Audio-only requests also require an audio-capable source.</p>
+<p>The search path normalizes query identity and reuses eligible completed identical results. Opening saved results does not make another semantic-search request or consume a new search allowance.</p>
+<p>For a new search, the application records a reservation before calling the provider. A guarded child process bounds external search execution and output. A timeout or lost response can become review-required work, not an automatic resubmission.</p>
+<p>Returned candidates are checked for:</p>
+<ul>
+<li>The expected indexed-video identity.</li>
+<li>Finite, ordered, nonnegative timestamps inside the source duration.</li>
+<li>Supported confidence values and bounded result counts.</li>
+<li>Partial/discarded-result handling rather than fabricated matches.</li>
+</ul>
+<p>The private path returns up to five validated matches. This is application filtering of provider-ranked results, not a locally implemented semantic ranking model.</p>
+<h3>Evidence paths are not identical</h3>
+<p>Preserved-demo stills are cached and worker-prepared; their HTTP route does not freely spawn extraction. Private-import frame requests instead perform bounded request-time extraction with resource/quota reservations and return an in-memory, no-store JPEG. Those private JPEGs are not persisted as evidence objects. Both paths need private media handling, but they should not be described as one interchangeable implementation.</p>
+<p>Source playback uses the native browser video element and an owner-authorized media endpoint. Range requests, generation checks and bounded streaming support seeking without exposing a public MP4 URL.</p>
+<p>Segment controls seek/restart/loop against the indexed source. External-platform links remain references unless actual playback and alignment have been verified. A mobile Chromium viewport, ready player, matching title or matching duration does not certify physical-device playback or linked-edit alignment.</p>
+<h2 id="section-11-authentication-ownership-and-admission">11. Authentication, ownership and admission</h2>
+<p>There are three separate questions:</p>
+<ol>
+<li><strong>Identity:</strong> who is the authenticated application user?</li>
+<li><strong>Admission/ownership:</strong> may that user access this product path or resource?</li>
+<li><strong>Entitlement:</strong> may that user perform new work under the applicable allowance or paid coverage?</li>
+</ol>
+<p>Conflating them would create privacy and billing vulnerabilities.</p>
+<h3>Replit pilot authentication</h3>
+<p>Replit OIDC with PKCE verifies identity and establishes an application session. The shared pilot is additionally controlled by an exact, case-sensitive OIDC-subject allowlist. An empty allowlist admits nobody; a valid login alone is not pilot admission.</p>
+<h3>Firebase email authentication</h3>
+<p>Firebase Email/Password is additive, not a replacement for Replit login or a migration to Firestore. Firebase handles passwords and its identity flows; the Flask application verifies identity and creates its own secure server session.</p>
+<p>The browser uses in-memory Firebase persistence. A short-lived, same-origin challenge and CSRF-bound exchange precede server validation of the ID token and user state. Verification includes the expected project/issuer/audience, validity/revocation, suitable sign-in provider, freshness and required verified-email state.</p>
+<p>Firebase identities map to opaque application owners. Email addresses or provider UIDs are not accepted as browser-supplied ownership authority, and matching email text does not automatically merge accounts.</p>
+<h3>Sessions and recovery</h3>
+<p>The application session is maintained through secure HttpOnly cookies and PostgreSQL-backed session state. Provider-state revalidation is bounded; uncertain identity status fails closed for protected new/private work.</p>
+<p>Protected writes enforce same-origin and CSRF requirements. Return destinations are constrained to safe application paths. Verification/reset parameters are handled through the supported action flow rather than retained in ordinary navigation state.</p>
+<p>Logout and account changes coordinate provider state, server session and browser caches. Cross-tab signalling and local access suppression avoid leaving private content available while signout/recovery status is uncertain.</p>
+<h3>Current account-mode boundary</h3>
+<p>Verified email users can have private trial access without becoming shared-proof pilot members. Current initial purchase/upgrade eligibility remains restricted to admitted Replit identities. The billing page exists, but a normal Firebase trial-to-paid conversion is not yet implemented.</p>
+<h2 id="section-12-allowances-quotas-and-cost-controls">12. Allowances, quotas and cost controls</h2>
+<p>The system has distinct accounting models rather than one universal counter.</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Semantics</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Shared proof</td>
+<td>Independent cumulative proof-search budget</td>
+</tr>
+<tr>
+<td>Private pilot/trial</td>
+<td>Cumulative/lifetime import and search accounting</td>
+</tr>
+<tr>
+<td>Commercial plans</td>
+<td>Finite usage windows backed by verified paid coverage</td>
+</tr>
+<tr>
+<td>Storage</td>
+<td>Concurrent occupancy, not a monthly consumptive counter</td>
+</tr>
+<tr>
+<td>Runtime capacity</td>
+<td>Concurrency/rate/lease controls, separate from purchased entitlement</td>
+</tr>
+</tbody>
+</table>
+<p>Documented baseline private limits include 200 MB media, a 4–1,200 second duration range, seven-day access/retention policy, and lifetime allowances of three import attempts and fifty new searches per account/trial ledger. Baseline application-wide limits are separate. These are not approved commercial tier prices or allowances; commercial limits come from reviewed configuration.</p>
+<p>Trial eligibility uses a stable keyed digest of conservatively normalized verified email, separate from resource ownership. Recreating an identity must not automatically replenish an already-consumed trial. Changing the eligibility hash secret is therefore an accounting migration, not routine credential rotation.</p>
+<p>Reservations are transactional and idempotent. Failed, cancelled or uncertain work can remain consumed. Deleting an import, expiring media or signing out does not refund a lifetime allowance.</p>
+<p>Commercial monthly windows are anchored to confirmed coverage. Yearly billing does not mean a year’s worth of monthly allowance is made available at once. Verified upgrades may raise a ceiling without resetting already-used capacity or changing the usage anchor.</p>
+<p>Release of unused work/storage reservations requires durable evidence. A timeout, process exit or lease expiry alone does not prove that a provider did no work or that an object was deleted.</p>
+<p>These controls bound application-approved work. They are not a universal guarantee against every possible infrastructure egress, storage or third-party charge.</p>
+<h2 id="section-13-billing-and-subscription-architecture">13. Billing and subscription architecture</h2>
+<h3>Hosted payment boundary</h3>
+<p>Card numbers and CVC are not handled by SceneIt. The server creates allowlisted Stripe-hosted Checkout or Customer Portal sessions, and the browser navigates to Stripe.</p>
+<p>The browser supplies a constrained offer selection and operation identity. The server derives authoritative customer, Price and return-destination details from reviewed configuration; the browser cannot choose an arbitrary payable amount or Price as an entitlement shortcut.</p>
+<p>A successful browser redirect is <strong>not</strong> proof of payment. Entitlement comes from verified provider state, processed through signed webhook handling or bounded reconciliation.</p>
+<h3>Internal separation</h3>
+<p>Billing modules separate HTTP routes, configuration/catalog validation, provider adaptation, business lifecycle, quota updates, operator recovery and optional notifications.</p>
+<p>The React <code>/billing</code> page is wired into the router and displays status/usage, eligible offers, hosted management actions, preview/confirmation, scheduled-change withdrawal and payment/recovery states. Its disabled or ineligible presentation is deliberate—not evidence that the page is absent.</p>
+<h3>Lifecycle rules</h3>
+<ul>
+<li>Checkout remains pending or uncertain until authoritative payment evidence is available.</li>
+<li>Period-end cancellation preserves already-confirmed paid coverage until its end.</li>
+<li>Failed or unfunded renewals do not mint new coverage or allowance.</li>
+<li>Upgrades use an expiring server-side preview and verified incremental funding.</li>
+<li>Downgrades and billing-cadence changes are scheduled according to renewal rules.</li>
+<li>Refunds/disputes/reversals affect the coverage attributable to the relevant funding, without replenishing consumed work.</li>
+<li>Idempotency, durable operation journals and uncertainty states prevent unsafe repeated actions.</li>
+</ul>
+<h3>Webhooks and reconciliation</h3>
+<p>Webhook processing validates the original request bytes, signature/timestamp and environment, deduplicates event identities, and verifies customer/subscription/allowlisted-price relationships.</p>
+<p>Event arrival order is not treated as authoritative lifecycle order. Reconciliation resolves relevant provider state, and acknowledgement must correspond to completed handling or a durable recovery record.</p>
+<p>Status, account management and cleanup are distinct from permission to buy new work. For example, loss of purchase eligibility should not unnecessarily remove the ability to manage an already-associated billing account.</p>
+<h3>Notifications</h3>
+<p>An optional outbox supports bounded billing/dunning/incident notifications. Stripe remains responsible for card retry behavior and its hosted receipts. SMTP transport acceptance is not proof of inbox delivery.</p>
+<p>Ambiguous post-send outcomes are not blindly resent. Independent monitoring is still required: an application-hosted outbox cannot reliably report that its own runtime, webhook endpoint or database is completely unavailable.</p>
+<h3>Activation status</h3>
+<p>Billing is disabled by default and live mode needs explicit approval. Public trials have a separate default-off switch. Neither switch implies the other, and neither should silently change pilot admission.</p>
+<p>The merged Stripe sandbox record documents deferred hosted verification. Local test fixtures and added credentials do not certify Checkout, Portal, signed delivery, renewals, refunds or real receipts. Final selling prices and commercial policy must come from an approved catalog, not test fixtures.</p>
+<h2 id="section-14-security-and-failure-handling-principles">14. Security and failure-handling principles</h2>
+<table>
+<thead>
+<tr>
+<th>Boundary</th>
+<th>Protection and implication</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Private resources</td>
+<td>Server-side owner scoping on status, search, evidence and media</td>
+</tr>
+<tr>
+<td>Shared demo</td>
+<td>Separate exact pilot admission; no implicit admission through email signup</td>
+</tr>
+<tr>
+<td>Browser mutations</td>
+<td>Same-origin and CSRF checks; UI disablement is not authorization</td>
+</tr>
+<tr>
+<td>Retrieval</td>
+<td>Constrained hosts/redirects/DNS/media; no arbitrary internal-network fetcher</td>
+</tr>
+<tr>
+<td>Storage writes</td>
+<td>Exact-size reservations, create-only generation rules and encrypted session references</td>
+</tr>
+<tr>
+<td>Storage reads</td>
+<td>Generation-pinned private access, range validation and bounded streaming</td>
+</tr>
+<tr>
+<td>Provider mutations</td>
+<td>Persist intent before sending; preserve ambiguity rather than auto-retry</td>
+</tr>
+<tr>
+<td>Worker ownership</td>
+<td>Claims, heartbeat, leases, advisory locks and fencing</td>
+</tr>
+<tr>
+<td>Expensive execution</td>
+<td>Finite permits, deadlines, child-process termination/reaping</td>
+</tr>
+<tr>
+<td>Billing</td>
+<td>Hosted card handling, verified payment evidence, server-owned catalog</td>
+</tr>
+<tr>
+<td>Preview files</td>
+<td>Explicit Vite filesystem limits; API admission must not be bypassed by file serving</td>
+</tr>
+<tr>
+<td>Logs</td>
+<td>Safe identifiers/codes/durations; no tokens, source URLs, queries or media payloads</td>
+</tr>
+</tbody>
+</table>
+<p>One governing rule is that <strong>an accounting deadline is not proof of external termination</strong>. A timed-out HTTP call may already have created a provider resource. An expired upload acceptance window may leave a storage bearer usable until revoked. A worker killed during restart may leave a capacity permit until normal expiry.</p>
+<p>Consequently, <code>needs_review</code> and retained reservations are intentional safety outcomes. Operators reconcile evidence rather than forcing a green status by deleting permits or replaying ambiguous external writes.</p>
+<p>Storage-session encryption depends on application key material. Key rotation must account for in-flight encrypted references; it should not make cleanup references unreadable without an explicit recovery plan.</p>
+<p>These are implemented controls and design intentions, not a claim of independent penetration testing or complete security certification.</p>
+<h2 id="section-15-runtime-deployment-and-operations">15. Runtime, deployment and operations</h2>
+<h3>Development</h3>
+<p>The product has separate managed frontend, Flask API and private-import-worker workflows. The mockup sandbox is independently operated for design work. One-off type/test commands are checks, not additional production services.</p>
+<p><strong>Dated workspace observation, not a deployment guarantee:</strong> managed workflow status inspected on 10 September 2026 at approximately 13:14 UTC reported the web, API and private-import-worker workflows running. This observation comes from workspace status/logs, not from source-code inspection, and is not a certification of production health or successful video processing.</p>
+<h3>Production topology</h3>
+<p>Durable ingestion needs a persistent worker; an autoscaled web-only process is not sufficient. A supervised <code>start:with-worker</code> option exists, but the operating guidance does not treat it as already activated production infrastructure.</p>
+<p>The current worker uses restrictive capacity/advisory-lock ownership. Increasing worker count requires a deliberate coordination design and capacity review, not simply more replicas.</p>
+<p>Production serving also needs approved host/proxy settings, private object storage, an appropriately constrained database role, explicit schema migration, backups, and operational monitoring. This document does not inspect or certify a published deployment.</p>
+<h3>Health and observability</h3>
+<ul>
+<li><code>/api/healthz</code> is a cheap liveness signal.</li>
+<li><code>/api/readyz</code> validates application configuration and bounded database/migration readiness.</li>
+<li>Provider readiness is explicitly not probed as a side effect of these endpoints.</li>
+<li>Worker heartbeat/capacity and review-required operations need separate operational attention.</li>
+<li>Logs emphasize request/operation identifiers, route templates, safe status/error codes and duration, rather than private payloads.</li>
+</ul>
+<p>This separation prevents health probes from buying analysis work or falsely asserting that media playback and billing integrations are certified.</p>
+<h3>Migration, backup and release discipline</h3>
+<p>A release should coordinate paused/new work, database and object backups, disposable restore verification, migration readiness, restart checks and explicit approval.</p>
+<p>Production schema upgrades are operator actions, not startup hooks. Development post-merge automation may run the explicit development upgrade path, but that is not permission to migrate production.</p>
+<p>Recovery must preserve ownership, generation references, paid coverage and consumed usage. Restoring only convenient subsets can create orphaned media, broken evidence or incorrect entitlement.</p>
+<h2 id="section-16-configuration-model">16. Configuration model</h2>
+<p>Configuration has independent identity, access, provider, quota and runtime domains.</p>
+<table>
+<thead>
+<tr>
+<th>Domain</th>
+<th>Representative settings</th>
+<th>Rule</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Core persistence/session</td>
+<td><code>DATABASE_URL</code>, <code>SESSION_SECRET</code></td>
+<td>Private runtime credentials; never client-bundled</td>
+</tr>
+<tr>
+<td>Pilot admission</td>
+<td><code>PILOT_ALLOWED_SUBJECTS</code></td>
+<td>Exact identities; absence fails closed</td>
+</tr>
+<tr>
+<td>Proxy/host trust</td>
+<td><code>TRUSTED_HOSTS</code>, proxy-hop/forwarding settings</td>
+<td>Match the real managed route, not a permissive guess</td>
+</tr>
+<tr>
+<td>Public trials</td>
+<td><code>SCENEIT_PUBLIC_TRIAL_ENABLED</code></td>
+<td>Separate, explicit rollout switch</td>
+</tr>
+<tr>
+<td>Firebase</td>
+<td>Public web configuration plus backend-only Admin/trial-hash credentials</td>
+<td>Invalid configuration closes email processing; do not expose private credentials</td>
+</tr>
+<tr>
+<td>Video provider</td>
+<td><code>TWELVE_LABS_API_KEY</code></td>
+<td>Required for approved provider work, not health probes</td>
+</tr>
+<tr>
+<td>Private storage</td>
+<td>Approved bucket/object-root configuration</td>
+<td>No public MP4 fallback</td>
+</tr>
+<tr>
+<td>Billing</td>
+<td><code>SCENEIT_BILLING_ENABLED</code>, reviewed catalog and Stripe credentials</td>
+<td>Validate environment/catalog/approval together</td>
+</tr>
+<tr>
+<td>Capacity</td>
+<td>Connection, search, media, worker and lease limits</td>
+<td>Finite safeguards, not values to raise to hide errors</td>
+</tr>
+<tr>
+<td>Notifications</td>
+<td>Approved sender/transport/scheduling and enablement</td>
+<td>Independent from payment and signup activation</td>
+</tr>
+</tbody>
+</table>
+<p>Setting a credential is not the same as approving activation. Enabling billing is not the same as opening email trials, granting shared-proof admission or certifying live payment behavior.</p>
+<p>The authoritative exact setting names/defaults are in the relevant configuration modules and operating documents. This table intentionally contains no secret values or private deployment addresses.</p>
+<h2 id="section-17-testing-and-verification-strategy">17. Testing and verification strategy</h2>
+<h3>Backend and persistence</h3>
+<p>Python unittest covers validation, ownership/session/CSRF boundaries, provider adapters, state transitions, deadlines, worker shutdown, cancellation, billing safety and recovery.</p>
+<p>Database-sensitive suites use a separate disposable <code>sceneit_test*</code> database and refuse to use the application database as destructive test storage. Tests cover locking, concurrent reservations, migration drift, restart persistence, idempotency, coverage and quota accounting.</p>
+<p>The ordinary run may skip these cases when no suitable isolated database is supplied. A green run with skips is not evidence that those database scenarios ran.</p>
+<h3>Frontend and browser</h3>
+<p>TypeScript behavior tests cover local state/utility contracts. Playwright exercises signup, recovery, imports, billing, pilot boundaries and complete-journey scenarios using intercepted APIs and synthetic media.</p>
+<p>The configured mobile project is an iPhone-sized Chromium fixture, not physical iOS Safari. Browser-level mocks are useful for deterministic states, but must not be used as evidence of real email delivery, actual Stripe hosted behavior or live Twelve Labs processing.</p>
+<p>The project also validates generated contracts, build/type integrity and preview filesystem boundaries.</p>
+<h3>Evidence at this snapshot</h3>
+<p>Managed workflow output inspected on 10 September 2026 at approximately 13:14 UTC reported the following. This is a dated workspace observation, separate from the older, scoped runs in the checked-in audit documents:</p>
+<ul>
+<li>Workspace type checks passed.</li>
+<li>Python suite: <strong>337 total, 255 passed, 82 skipped</strong>.</li>
+<li>Separate checked-in customer-journey, billing and isolated-database reports provide additional scoped evidence.</li>
+</ul>
+<p>The sources were the <code>typecheck</code> and <code>python-boundaries</code> managed-workflow outputs; the latter reported <code>Ran 337 tests</code> and <code>OK (skipped=82)</code>. These were existing recorded results, not newly triggered paid/provider tests. Counts are a snapshot and should not be treated as a permanent coverage metric.</p>
+<p>Earlier real video ingestion/search proof exists, but later fixture-based hardening does not retroactively certify every new live import, email, payment or phone flow.</p>
+<h3>What still requires external verification</h3>
+<p>Real phones/Safari and linked-video playback/alignment, approved Firebase project/email delivery, genuine hosted Stripe lifecycles, production runtime/restore configuration, and independent accessibility/security review remain separate from local test evidence.</p>
+<h2 id="section-18-key-technical-decisions-and-trade-offs">18. Key technical decisions and trade-offs</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Why it was made</th>
+<th>Consequence/trade-off</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Keep Flask</td>
+<td>Focus on product/ingestion risk rather than an unrelated rewrite</td>
+<td>Python remains the authoritative backend despite Node scaffolding</td>
+</tr>
+<tr>
+<td>New narrow React client</td>
+<td>Provide a maintainable interactive UI without claiming an unavailable legacy UI migration</td>
+<td>SPA routing/build and backend contracts must stay coordinated</td>
+</tr>
+<tr>
+<td>Separate shared proof/private imports</td>
+<td>Preserve original evidence/history while protecting new private data</td>
+<td>Two domain paths and admission models must remain explicit</td>
+</tr>
+<tr>
+<td>PostgreSQL-backed coordination</td>
+<td>Make reservations and job state transactional and durable</td>
+<td>More explicit SQL/locking logic; no plug-and-play external queue</td>
+</tr>
+<tr>
+<td>Separate worker</td>
+<td>Continue processing after browser disconnect and keep ingestion out of web requests</td>
+<td>Always-on runtime and deployment approval are required</td>
+</tr>
+<tr>
+<td>Direct-to-storage upload</td>
+<td>Avoid moving large upload bodies through Flask memory</td>
+<td>Bearer-session revocation and generation integrity become critical</td>
+</tr>
+<tr>
+<td>Private API-mediated playback</td>
+<td>Enforce ownership and generation-aware media access</td>
+<td>Range streaming and egress accounting add backend complexity</td>
+</tr>
+<tr>
+<td>External semantic engine</td>
+<td>Use Twelve Labs rather than build video embeddings/ranking infrastructure</td>
+<td>Provider availability, pricing and ambiguous operations need controls</td>
+</tr>
+<tr>
+<td>No blind external-write retry</td>
+<td>Avoid duplicate uploads, searches or charges</td>
+<td>Some work needs operator review; quota may remain consumed</td>
+</tr>
+<tr>
+<td>Explicit schema migration</td>
+<td>Avoid startup races and accidental production DDL</td>
+<td>Deployment requires an additional controlled step</td>
+</tr>
+<tr>
+<td>Generated API client</td>
+<td>Reduce handwritten request/type drift</td>
+<td>Generation must be paired with real route-contract tests</td>
+</tr>
+<tr>
+<td>Separate identity/admission/entitlement</td>
+<td>Prevent login from implicitly granting data or paid access</td>
+<td>More explicit eligibility states, including a current trial-to-paid gap</td>
+</tr>
+<tr>
+<td>Default-off email/billing rollout</td>
+<td>Avoid unapproved public access and charging</td>
+<td>Merged code is not a live launch</td>
+</tr>
+<tr>
+<td>Hosted card handling</td>
+<td>Keep sensitive payment entry at Stripe</td>
+<td>Provider-hosted flows still require genuine integration certification</td>
+</tr>
+<tr>
+<td>Provider-free quality gates</td>
+<td>Repeatable tests without spending user allowances</td>
+<td>External delivery, playback and payment proof remain separate</td>
+</tr>
+</tbody>
+</table>
+<h2 id="section-19-current-limitations-and-sensible-extension-boundaries">19. Current limitations and sensible extension boundaries</h2>
+<p>The implementation is substantially beyond the original one-video proof, but several boundaries remain important:</p>
+<ul>
+<li><strong>Email trial-to-paid conversion:</strong> initial purchase/upgrade eligibility does not yet support ordinary Firebase trial customers. A safe implementation must preserve owner identity and consumed allowances without implicitly granting shared-pilot admission.</li>
+<li><strong>Activation and certification:</strong> public trials and billing are controlled rollouts; live email and hosted payment evidence is incomplete/deferred.</li>
+<li><strong>Production worker topology:</strong> current operating guidance requires an approved persistent worker arrangement, rather than assuming the web deployment handles ingestion.</li>
+<li><strong>Playback evidence:</strong> physical devices and separately linked edits need actual playback/seek checks.</li>
+<li><strong>Accessibility and analytics:</strong> known navigation/heading work and signup-funnel instrumentation are not complete.</li>
+<li><strong>Operational burden:</strong> uncertain external work, object generations, coverage journals and coordinated backups require meaningful runbooks and monitoring.</li>
+<li><strong>Scaffold debt:</strong> unused Express/Drizzle and broad UI inventory can confuse new contributors. Their presence must not trigger accidental adoption or database replacement.</li>
+<li><strong>Scaling:</strong> higher throughput requires measured changes to worker coordination, database limits, media streaming and provider budgets. Raising replicas/limits blindly can invalidate the existing safety model.</li>
+</ul>
+<p>No current source is a basis for claiming cross-video search, public sharing, unlimited analysis, native mobile support, production payment certification or automatic trial conversion.</p>
+<h2 id="section-20-contributor-workflow-and-command-reference">20. Contributor workflow and command reference</h2>
+<p>Start with <code>replit.md</code> and the relevant operation guide. Make the smallest domain-specific change and preserve the current framework, ownership and provider-safety boundaries.</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pnpm run typecheck</code></td>
+<td>Build shared TypeScript declarations and check workspace code</td>
+</tr>
+<tr>
+<td><code>pnpm run build</code></td>
+<td>Type checks followed by package builds</td>
+</tr>
+<tr>
+<td><code>pnpm --filter @workspace/api-spec run codegen</code></td>
+<td>Regenerate clients and schemas from OpenAPI</td>
+</tr>
+<tr>
+<td><code>pnpm run check:contract-drift</code></td>
+<td>Check generated outputs against the contract</td>
+</tr>
+<tr>
+<td><code>pnpm --filter @workspace/sceneit run test:behavior</code></td>
+<td>Frontend behavior tests</td>
+</tr>
+<tr>
+<td><code>pnpm --filter @workspace/sceneit run test:ui</code></td>
+<td>Playwright fixture/browser tests</td>
+</tr>
+<tr>
+<td><code>pnpm --filter @workspace/api-server test</code></td>
+<td>Python unittest discovery through the locked environment</td>
+</tr>
+<tr>
+<td><code>pnpm run quality:local</code></td>
+<td>Isolated local quality gate with disposable PostgreSQL and controlled fixtures</td>
+</tr>
+<tr>
+<td><code>pnpm run release:check</code></td>
+<td>Locked release gate with its documented isolated-test prerequisites</td>
+</tr>
+<tr>
+<td><code>pnpm --filter @workspace/api-server run dev</code></td>
+<td>Flask development command; use the managed workflow</td>
+</tr>
+<tr>
+<td><code>pnpm --filter @workspace/sceneit run dev</code></td>
+<td>Vite development command; use the managed workflow</td>
+</tr>
+<tr>
+<td><code>pnpm --filter @workspace/api-server run worker</code></td>
+<td>Private import worker command; not a web-request action</td>
+</tr>
+</tbody>
+</table>
+<p>For schema changes, use the explicit development status/upgrade commands in <code>replit.md</code> and add the appropriate SQL migration. Do not run the unused Drizzle push against Python-owned tables.</p>
+<p>For API changes, update OpenAPI, regenerate, update handlers/consumers, then validate actual responses and affected flows. For auth, ownership, provider-write or billing changes, include adversarial and uncertain-outcome cases, not only a successful fixture.</p>
+<p>When reviewing an unfamiliar path, trace <strong>identity → authorization → reservation → external work → durable outcome → UI recovery</strong>. That sequence exposes most of this project’s consequential failure boundaries.</p>
+<h2 id="section-21-source-map-and-further-reading">21. Source map and further reading</h2>
+<p>All paths below are relative to the workspace root.</p>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Primary references</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scope and operating rules</td>
+<td><code>replit.md</code></td>
+</tr>
+<tr>
+<td>Dependencies/workspace</td>
+<td><code>pyproject.toml</code>, <code>uv.lock</code>, <code>pnpm-workspace.yaml</code>, <code>pnpm-lock.yaml</code>, package manifests</td>
+</tr>
+<tr>
+<td>Frontend entry/routes</td>
+<td><code>artifacts/sceneit/src/main.tsx</code>, <code>artifacts/sceneit/src/App.tsx</code></td>
+</tr>
+<tr>
+<td>Frontend visual/build setup</td>
+<td><code>artifacts/sceneit/src/index.css</code>, <code>artifacts/sceneit/vite.config.ts</code></td>
+</tr>
+<tr>
+<td>Browser auth</td>
+<td><code>lib/replit-auth-web/src/use-auth.ts</code>, <code>lib/replit-auth-web/src/firebase-client.ts</code></td>
+</tr>
+<tr>
+<td>API source/generation</td>
+<td><code>lib/api-spec/openapi.yaml</code>, <code>lib/api-spec/orval.config.ts</code>, <code>lib/api-client-react/src/custom-fetch.ts</code></td>
+</tr>
+<tr>
+<td>Flask/domain boundaries</td>
+<td><code>artifacts/api-server/sceneit/server.py</code>, <code>security.py</code>, <code>auth.py</code>, <code>firebase_auth.py</code></td>
+</tr>
+<tr>
+<td>Imports/search/provider</td>
+<td><code>artifacts/api-server/sceneit/imports.py</code>, <code>import_worker.py</code>, <code>import_search.py</code>, <code>provider.py</code></td>
+</tr>
+<tr>
+<td>Media/persistence</td>
+<td><code>artifacts/api-server/sceneit/private_storage.py</code>, <code>proof_media.py</code>, <code>db.py</code>, <code>migrate.py</code>, <code>schema.sql</code></td>
+</tr>
+<tr>
+<td>Billing/quotas</td>
+<td><code>artifacts/api-server/sceneit/billing.py</code>, <code>billing_routes.py</code>, <code>billing_provider.py</code>, <code>billing_config.py</code>, <code>quota.py</code></td>
+</tr>
+<tr>
+<td>Import operations</td>
+<td><code>artifacts/api-server/docs/import-operations.md</code></td>
+</tr>
+<tr>
+<td>Pilot/release evidence</td>
+<td><code>artifacts/api-server/docs/pilot-operations.md</code>, <code>pilot-verification.md</code></td>
+</tr>
+<tr>
+<td>Email/trials</td>
+<td><code>artifacts/api-server/docs/email-trial-operations.md</code></td>
+</tr>
+<tr>
+<td>Billing operation/activation</td>
+<td><code>artifacts/api-server/docs/billing-operations.md</code>, <code>billing-activation-review.md</code></td>
+</tr>
+<tr>
+<td>Billing delivery/evidence</td>
+<td><code>artifacts/api-server/docs/billing-notification-operations.md</code>, <code>billing-local-verification.md</code>, <code>billing-sandbox-verification.md</code></td>
+</tr>
+<tr>
+<td>Customer journey</td>
+<td><code>artifacts/api-server/docs/customer-journey-audit.md</code> and its evidence directory</td>
+</tr>
+<tr>
+<td>Test/release tools</td>
+<td><code>artifacts/sceneit/playwright.config.ts</code>, <code>scripts/release-check.sh</code>, <code>scripts/pilot-local-gate.sh</code>, <code>scripts/validate-openapi-response.mjs</code></td>
+</tr>
+</tbody>
+</table>
+<p>When a historical audit differs from newer source, use the current implementation and update the interpretation. For example, the older audit’s absence of a billing UI no longer describes the routed billing page; its warning that email trials do not automatically become paid memberships still applies.</p>
+<p><strong>Maintenance note:</strong> update this reference when identity/entitlement rules, API generation, schema ownership, worker topology or external-operation recovery semantics change. Do not turn temporary workflow state or a successful mock into a durable claim of production certification.</p>
+</article></main></body></html>
