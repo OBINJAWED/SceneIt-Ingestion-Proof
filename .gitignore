@@ -60,3 +60,6 @@ playwright-report/
 .config/
 *.zip
 
+
+*.mp4
+
