@@ -55,3 +55,8 @@ __pycache__/
 .pytest_cache/
 test-results/
 playwright-report/
+
+# Local/zip ignore
+.config/
+*.zip
+
